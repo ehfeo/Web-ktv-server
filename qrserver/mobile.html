@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>KTV点歌</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #0a0e27 0%, #1a1a4e 50%, #0d1137 100%);
+  color: #e0e0ff;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.header {
+  background: linear-gradient(135deg, #1a1a5e, #2a2a8e);
+  padding: 16px 20px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: bold;
+  color: #a0a0ff;
+  border-bottom: 1px solid #3a3a8e;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.search-bar {
+  display: flex;
+  padding: 12px 16px;
+  gap: 8px;
+  background: rgba(20, 20, 60, 0.8);
+  position: sticky;
+  top: 52px;
+  z-index: 10;
+}
+.search-bar input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #4a4a9e;
+  border-radius: 8px;
+  background: rgba(10, 10, 40, 0.9);
+  color: #e0e0ff;
+  font-size: 16px;
+  outline: none;
+}
+.search-bar input::placeholder { color: #6a6a9e; }
+.search-bar input:focus { border-color: #7070ff; }
+.search-bar button {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #5050cc, #7070ff);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.search-bar button:active { opacity: 0.8; }
+.section-title {
+  padding: 12px 16px 6px;
+  font-size: 14px;
+  color: #8888cc;
+  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.result-count {
+  font-size: 12px;
+  color: #6a6a9e;
+  font-weight: normal;
+}
+.song-list {
+  padding: 0 12px 12px;
+}
+.song-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 6px;
+  background: rgba(30, 30, 80, 0.6);
+  border-radius: 10px;
+  border: 1px solid rgba(60, 60, 140, 0.3);
+}
+.song-info {
+  flex: 1;
+  min-width: 0;
+}
+.song-name {
+  font-size: 15px;
+  color: #d0d0ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.song-detail {
+  font-size: 12px;
+  color: #7878b0;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-add {
+  padding: 6px 16px;
+  background: linear-gradient(135deg, #e04060, #ff6080);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  margin-left: 10px;
+  white-space: nowrap;
+}
+.btn-add:active { opacity: 0.8; }
+.btn-add:disabled { opacity: 0.4; cursor: default; }
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+}
+.page-btn {
+  padding: 6px 14px;
+  background: rgba(50, 50, 120, 0.6);
+  border: 1px solid #4a4a9e;
+  border-radius: 6px;
+  color: #a0a0ff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.page-btn:active { opacity: 0.7; }
+.page-btn:disabled { opacity: 0.3; cursor: default; }
+.page-info { color: #7878b0; font-size: 13px; }
+.queue-section {
+  margin-top: 8px;
+  padding-bottom: 20px;
+}
+.queue-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  margin: 0 12px 4px;
+  background: rgba(30, 30, 80, 0.4);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.queue-item.playing {
+  background: rgba(80, 50, 120, 0.6);
+  border: 1px solid rgba(140, 80, 200, 0.4);
+}
+.queue-index {
+  width: 28px;
+  color: #7878b0;
+  font-size: 13px;
+}
+.queue-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.playing-icon {
+  color: #ff6080;
+  margin-right: 6px;
+  font-size: 12px;
+}
+.empty-hint {
+  text-align: center;
+  padding: 30px;
+  color: #5858a0;
+  font-size: 14px;
+}
+.loading {
+  text-align: center;
+  padding: 20px;
+  color: #7878b0;
+}
+/* 密码弹窗 */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+}
+.modal-overlay.show { display: flex; }
+.modal-box {
+  background: linear-gradient(135deg, #1a1a5e, #2a2a8e);
+  border-radius: 16px;
+  padding: 28px 24px;
+  width: 90%;
+  max-width: 340px;
+  border: 1px solid #4a4a9e;
+}
+.modal-title {
+  font-size: 18px;
+  font-weight: bold;
+  color: #a0a0ff;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.modal-box input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #4a4a9e;
+  border-radius: 8px;
+  background: rgba(10, 10, 40, 0.9);
+  color: #e0e0ff;
+  font-size: 18px;
+  text-align: center;
+  letter-spacing: 6px;
+  outline: none;
+}
+.modal-box input:focus { border-color: #7070ff; }
+.modal-btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.modal-btns button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+}
+.btn-confirm {
+  background: linear-gradient(135deg, #5050cc, #7070ff);
+  color: white;
+}
+.btn-cancel {
+  background: rgba(60, 60, 120, 0.5);
+  color: #a0a0cc;
+}
+.modal-error {
+  color: #ff6080;
+  font-size: 13px;
+  text-align: center;
+  margin-top: 8px;
+  min-height: 20px;
+}
+/* Toast */
+.toast {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(80, 60, 140, 0.95);
+  color: #e0e0ff;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+.toast.error { background: rgba(140, 40, 60, 0.95); }
+.toast.success { background: rgba(40, 120, 80, 0.95); }
+</style>
+</head>
+<body>
+
+<div class="header">🎤 KTV点歌</div>
+
+<div class="search-bar">
+  <input type="text" id="searchInput" placeholder="输入歌名或歌手搜索..." />
+  <button onclick="doSearch(1)">搜索</button>
+</div>
+
+<div id="searchSection" style="display:none">
+  <div class="section-title">
+    <span>搜索结果</span>
+    <span class="result-count" id="resultCount"></span>
+  </div>
+  <div class="song-list" id="searchResults"></div>
+  <div class="pagination" id="searchPagination" style="display:none"></div>
+</div>
+
+<div class="queue-section">
+  <div class="section-title">当前播放队列</div>
+  <div id="queueList">
+    <div class="empty-hint">暂无播放队列</div>
+  </div>
+</div>
+
+<!-- 密码弹窗 -->
+<div class="modal-overlay" id="passwordModal">
+  <div class="modal-box">
+    <div class="modal-title">🔒 请输入房间密码</div>
+    <input type="password" id="passwordInput" placeholder="请输入密码" maxlength="10" />
+    <div class="modal-error" id="passwordError"></div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closePasswordModal()">取消</button>
+      <button class="btn-confirm" onclick="submitPassword()">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const SESSION_ID = "{{.SessionID}}";
+const PAGE_SIZE = 20;
+let ws = null;
+let authenticated = false;
+let reconnectTimer = null;
+let currentKeyword = '';
+let currentPage = 1;
+let totalResults = 0;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws/mobile?session=' + encodeURIComponent(SESSION_ID));
+
+  ws.onopen = function() {
+    console.log('WebSocket已连接');
+  };
+
+  ws.onmessage = function(e) {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch(err) { return; }
+
+    switch(msg.type) {
+      case 'needPassword':
+        showPasswordModal();
+        break;
+      case 'passwordResult':
+        if (msg.valid) {
+          authenticated = true;
+          closePasswordModal();
+          showToast('验证成功', 'success');
+        } else {
+          document.getElementById('passwordError').textContent = '密码错误，请重试';
+        }
+        break;
+      case 'searchResult':
+        totalResults = msg.total || 0;
+        currentPage = msg.page || 1;
+        renderSearchResults(msg.songs || [], msg.total || 0, msg.page || 1, msg.pageSize || PAGE_SIZE);
+        break;
+      case 'queueUpdate':
+        renderQueue(msg.queue || [], msg.currentPlayingIndex || 0);
+        break;
+      case 'error':
+        showToast(msg.message, 'error');
+        break;
+    }
+  };
+
+  ws.onclose = function() {
+    console.log('WebSocket断开，3秒后重连...');
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = function() {
+    console.log('WebSocket错误');
+  };
+}
+
+function sendMsg(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
+
+// 搜索
+function doSearch(page) {
+  const keyword = document.getElementById('searchInput').value.trim();
+  if (!keyword) return;
+  currentKeyword = keyword;
+  currentPage = page || 1;
+  sendMsg({ type: 'search', keyword: keyword, page: currentPage, pageSize: PAGE_SIZE });
+  document.getElementById('searchSection').style.display = 'block';
+  document.getElementById('searchResults').innerHTML = '<div class="loading">搜索中...</div>';
+  document.getElementById('searchPagination').style.display = 'none';
+}
+
+document.getElementById('searchInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doSearch(1);
+});
+document.getElementById('searchInput').addEventListener('input', function() {
+  if (!this.value.trim()) {
+    document.getElementById('searchSection').style.display = 'none';
+    document.getElementById('searchResults').innerHTML = '';
+    document.getElementById('searchPagination').style.display = 'none';
+    currentKeyword = '';
+  }
+});
+
+// 点歌
+function addSong(path, name, type) {
+  sendMsg({ type: 'addSong', path: path, name: name, songType: type });
+  showToast('已点歌: ' + name, 'success');
+}
+
+// 渲染搜索结果
+function renderSearchResults(songs, total, page, pageSize) {
+  const container = document.getElementById('searchResults');
+  document.getElementById('searchSection').style.display = 'block';
+
+  var totalPages = Math.ceil(total / pageSize) || 1;
+  document.getElementById('resultCount').textContent = '共' + total + '首 ' + page + '/' + totalPages + '页';
+
+  if (!songs.length) {
+    container.innerHTML = '<div class="empty-hint">未找到相关歌曲</div>';
+    document.getElementById('searchPagination').style.display = 'none';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < songs.length; i++) {
+    const s = songs[i];
+    const name = escHtml(s.name || s.Name || '');
+    const detail = escHtml(s.singer || s.Singer || s.artist || s.Artist || s.type || s.Type || '');
+    const path = escAttr(s.path || s.Path || '');
+    const stype = escAttr(s.type || s.Type || 'video');
+    html += '<div class="song-item">'
+      + '<div class="song-info">'
+      + '<div class="song-name">' + name + '</div>'
+      + (detail ? '<div class="song-detail">' + detail + '</div>' : '')
+      + '</div>'
+      + '<button class="btn-add" onclick="addSong(\'' + path + '\',\'' + escJs(name) + '\',\'' + stype + '\')">点歌</button>'
+      + '</div>';
+  }
+  container.innerHTML = html;
+
+  // 分页
+  var pagEl = document.getElementById('searchPagination');
+  if (totalPages <= 1) {
+    pagEl.style.display = 'none';
+    return;
+  }
+  var pagHtml = '<button class="page-btn" onclick="doSearch(' + (page - 1) + ')"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>';
+  pagHtml += '<span class="page-info">' + page + ' / ' + totalPages + '</span>';
+  pagHtml += '<button class="page-btn" onclick="doSearch(' + (page + 1) + ')"' + (page >= totalPages ? ' disabled' : '') + '>下一页</button>';
+  pagEl.innerHTML = pagHtml;
+  pagEl.style.display = 'flex';
+}
+
+// 渲染播放队列
+function renderQueue(queue, currentIndex) {
+  const container = document.getElementById('queueList');
+  if (!queue.length) {
+    container.innerHTML = '<div class="empty-hint">暂无播放队列</div>';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < queue.length; i++) {
+    const q = queue[i];
+    const name = escHtml(q.name || q.Name || '');
+    const isPlaying = (i === currentIndex);
+    html += '<div class="queue-item' + (isPlaying ? ' playing' : '') + '">'
+      + '<span class="queue-index">' + (i + 1) + '</span>'
+      + (isPlaying ? '<span class="playing-icon">▶</span>' : '')
+      + '<span class="queue-name">' + name + '</span>'
+      + '</div>';
+  }
+  container.innerHTML = html;
+}
+
+// 密码弹窗
+function showPasswordModal() {
+  document.getElementById('passwordModal').classList.add('show');
+  document.getElementById('passwordInput').value = '';
+  document.getElementById('passwordError').textContent = '';
+  setTimeout(function() {
+    document.getElementById('passwordInput').focus();
+  }, 100);
+}
+
+function closePasswordModal() {
+  document.getElementById('passwordModal').classList.remove('show');
+}
+
+function submitPassword() {
+  const pwd = document.getElementById('passwordInput').value.trim();
+  if (!pwd) {
+    document.getElementById('passwordError').textContent = '请输入密码';
+    return;
+  }
+  document.getElementById('passwordError').textContent = '';
+  sendMsg({ type: 'verifyPassword', password: pwd });
+}
+
+document.getElementById('passwordInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') submitPassword();
+});
+
+// Toast
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(function() {
+    el.className = 'toast';
+  }, 2000);
+}
+
+// 工具函数
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) {
+  if (!s) return '';
+  return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+}
+function escJs(s) {
+  if (!s) return '';
+  return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+
+// 启动连接
+connect();
+</script>
+</body>
+</html>

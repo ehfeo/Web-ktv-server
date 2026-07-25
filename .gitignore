@@ -1,0 +1,45 @@
+# 编译产物
+*.exe
+
+# FFmpeg 二进制（体积大，用户自行下载）
+ffmpeg.exe
+ffprobe.exe
+ffmpeg.rar
+ffprobe.rar
+
+# 配置和缓存（用户本地生成）
+ktv_config.json
+ktv_media_cache.json
+0结果搜索词.txt
+
+# 用户上传目录（运行时生成）
+uploads/
+
+# 压缩包
+*.rar
+*.zip
+
+# 旧版补丁文件
+acryptprimitives32.dll
+acryptprimitives64.dll
+acryptprimitives.dll
+
+# 临时/开发文件
+fftplayer.html
+gen_manual.py
+go1.20.14.zip
+编译.bat
+
+# Go 编译缓存
+go.work
+
+# OS 生成
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
