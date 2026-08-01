@@ -10,6 +10,7 @@ ffprobe.rar
 # 配置和缓存（用户本地生成）
 ktv_config.json
 ktv_media_cache.json
+ktv_hotplay.json
 0结果搜索词.txt
 
 # 用户上传目录（运行时生成）

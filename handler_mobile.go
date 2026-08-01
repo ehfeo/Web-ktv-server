@@ -15,77 +15,95 @@ func MobilePageHandler(w http.ResponseWriter, r *http.Request) {
 <title>KTV 点歌</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei,-apple-system,sans-serif}
-html,body{width:100%;height:100%;overflow:hidden;background:#080812;color:#fff}
+html,body{width:100%;height:100%;overflow:hidden;background:#1a252f;color:#ecf0f1}
 .app{display:flex;flex-direction:column;height:100vh;width:100%}
 
 /* 播放器区域 */
-.player-area{width:100%;background:#000;position:relative;flex-shrink:0}
+.player-area{width:100%;background:#0d1922;position:relative;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,0.3)}
 .video-wrap{width:100%;aspect-ratio:16/9;background:#000;position:relative}
 .video-wrap video,.video-wrap audio{width:100%;height:100%;object-fit:contain}
-.audio-wrap{width:100%;padding:15px;background:#111328}
+.audio-wrap{width:100%;padding:15px;background:#152029;box-shadow:inset 0 1px 0 rgba(255,255,255,0.03)}
 .audio-wrap audio{width:100%}
-.audio-title{text-align:center;color:#00aaff;font-size:16px;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.player-controls{display:flex;justify-content:center;gap:10px;padding:6px 10px;background:#0f1020;flex-shrink:0}
-.ctrl-btn{padding:6px 16px;border:none;border-radius:4px;font-size:13px;cursor:pointer;color:#fff;background:#181a35}
-.ctrl-btn:active{background:#00aaff}
-.ctrl-btn.active{background:#27ae60}
+.audio-title{text-align:center;color:#ecf0f1;font-size:16px;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-controls{display:flex;justify-content:center;gap:10px;padding:8px 10px;background:#152029;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,0.2)}
+.ctrl-btn{padding:8px 18px;border:none;border-radius:4px;font-size:14px;font-weight:bold;cursor:pointer;color:#fff;background:#34495e;box-shadow:0 1px 3px rgba(0,0,0,0.2);transition:background 0.15s}
+.ctrl-btn:hover{background:#4a6278}
+.ctrl-btn:active{background:#2c3e50}
+.ctrl-btn.active{background:#428bca;box-shadow:0 1px 3px rgba(0,0,0,0.2);color:#fff}
+.ctrl-btn.active:hover{background:#5a9bd5}
 
 /* 标签栏 */
-.tab-bar{display:flex;background:#0f1020;border-bottom:1px solid #222444;flex-shrink:0}
-.tab-item{flex:1;padding:10px 0;text-align:center;font-size:15px;color:#888;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s}
-.tab-item.active{color:#00aaff;border-bottom-color:#00aaff}
+.tab-bar{display:flex;background:#152029;border-bottom:1px solid #253644;flex-shrink:0;box-shadow:0 1px 4px rgba(0,0,0,0.2)}
+.tab-item{flex:1;padding:11px 0;text-align:center;font-size:15px;font-weight:bold;color:#95a5a6;cursor:pointer;border-bottom:3px solid transparent;transition:all 0.2s}
+.tab-item.active{color:#428bca;border-bottom-color:#428bca}
 
 /* 标签内容 */
 .tab-content{flex:1;overflow:hidden;display:flex;flex-direction:column}
 .tab-panel{display:none;flex:1;flex-direction:column;overflow:hidden}
 .tab-panel.active{display:flex}
 
-/* 点歌面板 */
-.search-bar{display:flex;gap:8px;padding:8px 10px;background:#111328;flex-shrink:0}
-.search-bar input{flex:1;padding:8px 12px;background:#181a35;border:none;border-radius:4px;color:#fff;font-size:14px;outline:none}
-.search-bar input::placeholder{color:#888}
-.search-bar button{padding:8px 16px;background:#00aaff;border:none;border-radius:4px;color:#fff;font-size:14px;cursor:pointer;white-space:nowrap}
-.song-list{flex:1;overflow-y:auto;padding:6px;-webkit-overflow-scrolling:touch}
-.song-item{padding:10px 12px;background:#181a35;margin-bottom:4px;border-radius:4px;font-size:14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.singer-letters{display:flex;flex-wrap:wrap;gap:3px;padding:8px;background:#0f1020;border-bottom:1px solid #222;flex-shrink:0}
-.singer-letters span{padding:4px 8px;background:#181a35;border-radius:3px;color:#aaa;font-size:13px;cursor:pointer}
-.singer-letters span:hover,.singer-letters span.active{background:#0af;color:#fff}
+/* 点歌面板 - 2010s深蓝灰风格 */
+.search-bar{display:flex;gap:8px;padding:10px 12px;background:#1e2d3a;border-bottom:1px solid #253644;flex-shrink:0}
+.search-bar input{flex:1;padding:10px 14px;background:#0d1922;border:1px solid #34495e;border-radius:6px;color:#ecf0f1;font-size:15px;outline:none;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3);transition:border-color 0.2s}
+.search-bar input:focus{border-color:#428bca;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3),0 0 0 2px rgba(66,139,202,0.25)}
+.search-bar input::placeholder{color:#7f8c8d}
+.search-bar button{padding:10px 20px;background:#428bca;border:none;border-radius:6px;color:#fff;font-size:15px;font-weight:bold;cursor:pointer;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.2);transition:background 0.15s}
+.search-bar button:hover{background:#5a9bd5}
+.search-bar button:active{background:#357ebd}
+.song-list{flex:1;overflow-y:auto;padding:8px;-webkit-overflow-scrolling:touch}
+.song-item{padding:12px 14px;background:#1e2d3a;margin-bottom:5px;border-radius:4px;font-size:14px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:background 0.15s;border-left:4px solid #428bca;border-top:1px solid #253644;border-right:1px solid #253644;border-bottom:1px solid #253644;color:#ecf0f1}
+.song-item:hover{background:#273849;box-shadow:0 2px 6px rgba(0,0,0,0.2)}
+.singer-letters{display:flex;flex-wrap:wrap;gap:4px;padding:10px;background:#1e2d3a;border-bottom:1px solid #253644;flex-shrink:0}
+.singer-letters span{padding:5px 10px;background:#2c3e50;border-radius:4px;color:#bdc3c7;font-size:13px;font-weight:bold;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,0.15);transition:all 0.15s;border:1px solid #34495e}
+.singer-letters span:hover,.singer-letters span.active{background:#428bca;color:#fff;border-color:#428bca;box-shadow:0 1px 3px rgba(0,0,0,0.2)}
 .singer-list{flex:1;overflow-y:auto;padding:6px;-webkit-overflow-scrolling:touch}
-.singer-grid{padding:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:4px}
-.singer-btn{padding:6px 4px;background:#181a35;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:48px}
-.singer-btn:active{background:#0066ff}
-.singer-btn .sname{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
-.singer-btn .scount{font-size:10px;color:#888}
-.cat-grid{padding:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(75px,1fr));gap:4px}
-.cat-btn{padding:6px 4px;background:#181a35;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:48px}
-.cat-btn:active{background:#0066ff}
-.cat-btn .cname{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
-.cat-btn .ccount{font-size:10px;color:#888}
-.singer-back{padding:10px 12px;background:#222444;margin-bottom:6px;border-radius:4px;cursor:pointer;color:#0af;font-size:13px;text-align:center}
-.song-item:active{background:#0066ff}
-.pagination{padding:8px;background:#111328;display:flex;justify-content:center;gap:6px;flex-shrink:0;flex-wrap:wrap}
-.page-btn{padding:4px 10px;background:#222444;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:13px}
-.page-btn.active{background:#00aaff}
-.page-btn:disabled{background:#181a35;color:#666;cursor:not-allowed}
+.singer-grid{padding:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px}
+.singer-btn{padding:8px 4px;background:#1e2d3a;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:52px;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:background 0.15s;border:1px solid #253644}
+.singer-btn:hover{background:#273849}
+.singer-btn:active{background:#428bca}
+.singer-btn .sname{font-size:12px;color:#ecf0f1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.singer-btn .scount{font-size:10px;color:#95a5a6}
+.cat-grid{padding:4px;display:grid;grid-template-columns:repeat(auto-fill,minmax(75px,1fr));gap:8px}
+.cat-btn{padding:8px 4px;background:#1e2d3a;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:52px;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:background 0.15s;border:1px solid #253644}
+.cat-btn:hover{background:#273849}
+.cat-btn:active{background:#428bca}
+.cat-btn .cname{font-size:12px;color:#ecf0f1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
+.cat-btn .ccount{font-size:10px;color:#95a5a6}
+.singer-back{padding:12px 14px;background:#1e2d3a;margin-bottom:6px;border-radius:4px;cursor:pointer;color:#428bca;font-size:14px;font-weight:bold;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.15);transition:background 0.15s;border:1px solid #253644}
+.singer-back:hover{background:#273849}
+.song-item:active{background:#428bca;box-shadow:0 1px 2px rgba(0,0,0,0.15);border-left-color:#357ebd;border-top-color:#357ebd;border-right-color:#357ebd;border-bottom-color:#357ebd}
+.pagination{padding:10px;background:#1e2d3a;display:flex;justify-content:center;gap:6px;flex-shrink:0;flex-wrap:wrap}
+.page-btn{padding:6px 12px;background:#2c3e50;border:none;border-radius:4px;color:#ecf0f1;cursor:pointer;font-size:13px;font-weight:bold;box-shadow:0 1px 2px rgba(0,0,0,0.15);transition:background 0.15s}
+.page-btn:hover{background:#34495e}
+.page-btn.active{background:#428bca;box-shadow:0 1px 3px rgba(0,0,0,0.2)}
+.page-btn:disabled{background:#1e2d3a;color:#546a7b;cursor:not-allowed;box-shadow:none}
+.page-btn:not(:disabled):active{background:#357ebd}
 
-/* 队列面板 */
+/* 队列面板 - 2010s深蓝灰风格 */
 .queue-list{flex:1;overflow-y:auto;padding:10px;-webkit-overflow-scrolling:touch}
-.queue-title{color:#00aaff;font-size:14px;margin-bottom:8px}
-.queue-item{padding:10px 12px;background:#181a35;margin-bottom:4px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;font-size:14px}
-.queue-item.playing{border-left:3px solid #00ff00}
-.queue-item .name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:8px}
-.queue-item .status{font-size:12px;color:#888;white-space:nowrap;margin-right:8px}
-.queue-item .status.playing{color:#00ff00}
-.queue-item .status.ready{color:#00aaff}
-.queue-item .status.transcoding{color:#ff9900}
-.queue-item .status.waiting{color:#ff9900}
-.top-btn{background:#0066cc;border:none;color:#fff;border-radius:3px;padding:4px 8px;cursor:pointer;font-size:12px;flex-shrink:0}
-.del-btn{background:#ff3333;border:none;color:#fff;border-radius:3px;padding:4px 8px;cursor:pointer;font-size:12px;flex-shrink:0}
-.empty-hint{text-align:center;color:#555;padding:40px 20px;font-size:14px}
-.btn-random{display:block;width:calc(100% - 20px);margin:10px auto;padding:10px;background:#1a5c3a;border:1px solid #00ff88;color:#00ff88;border-radius:6px;font-size:14px;cursor:pointer;flex-shrink:0}
-.toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,170,255,0.95);color:#fff;padding:12px 28px;border-radius:8px;font-size:15px;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:100;text-align:center;max-width:80%}
+.queue-title{color:#ecf0f1;font-size:15px;font-weight:bold;margin-bottom:10px}
+.queue-item{padding:12px 14px;background:#1e2d3a;margin-bottom:5px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;font-size:14px;box-shadow:0 1px 3px rgba(0,0,0,0.15);border:1px solid #253644;transition:background 0.15s}
+.queue-item:hover{background:#273849}
+.queue-item.playing{border-left:4px solid #428bca;border-top:1px solid #253644;border-right:1px solid #253644;border-bottom:1px solid #253644;box-shadow:0 1px 4px rgba(66,139,202,0.15)}
+.queue-item .name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:8px;color:#ecf0f1}
+.queue-item .status{font-size:12px;color:#95a5a6;white-space:nowrap;margin-right:8px}
+.queue-item .status.playing{color:#428bca}
+.queue-item .status.ready{color:#5cb85c}
+.queue-item .status.transcoding{color:#f0ad4e}
+.queue-item .status.waiting{color:#f0ad4e}
+.top-btn{background:#5cb85c;border:none;color:#fff;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:bold;flex-shrink:0;box-shadow:0 1px 2px rgba(0,0,0,0.15);transition:background 0.15s}
+.top-btn:hover{background:#6ed06e}
+.top-btn:active{background:#4cae4c}
+.del-btn{background:#d9534f;border:none;color:#fff;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:bold;flex-shrink:0;box-shadow:0 1px 2px rgba(0,0,0,0.15);transition:background 0.15s}
+.del-btn:hover{background:#e06b5e}
+.del-btn:active{background:#c9302c}
+.empty-hint{text-align:center;color:#546a7b;padding:40px 20px;font-size:14px}
+.btn-random{display:block;width:calc(100% - 20px);margin:12px auto;padding:14px;background:#f0ad4e;border:none;color:#1a252f;border-radius:6px;font-size:16px;font-weight:bold;cursor:pointer;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,0.2);transition:background 0.15s;letter-spacing:2px}
+.btn-random:hover{background:#f5c06e}
+.btn-random:active{background:#ec971f}
+.toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(26,37,47,0.95);color:#ecf0f1;padding:14px 32px;border-radius:6px;font-size:16px;font-weight:bold;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:100;text-align:center;max-width:80%;box-shadow:0 4px 20px rgba(0,0,0,0.4);border:1px solid #34495e}
 .toast.show{opacity:1}
-.toast.error{background:rgba(255,68,68,0.95)}
+.toast.error{background:rgba(185,74,72,0.95);border-color:#d9534f}
 </style>
 </head>
 <body>
@@ -115,6 +133,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080812;color:#fff}
         <div class="tab-item" onclick="switchTab('singer')" id="tabSinger">歌手</div>
         <div class="tab-item" onclick="switchTab('language')" id="tabLanguage">语种</div>
         <div class="tab-item" onclick="switchTab('category')" id="tabCategory">曲种</div>
+        <div class="tab-item" onclick="switchTab('hot')" id="tabHot">热播</div>
         <div class="tab-item" onclick="switchTab('queue')" id="tabQueue">队列</div>
     </div>
 
@@ -145,6 +164,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080812;color:#fff}
         <!-- 曲种面板 -->
         <div class="tab-panel" id="panelCategory">
             <div class="singer-list" id="categoryList"></div>
+        </div>
+
+        <!-- 热播面板 -->
+        <div class="tab-panel" id="panelHot">
+            <div class="singer-list" id="hotList"></div>
         </div>
 
         <!-- 队列面板 -->
@@ -181,7 +205,7 @@ var mobileLanguageData = null;
 var mobileCategoryData = null;
 
 function switchTab(tab) {
-    var tabs = ['songs','singer','language','category','queue'];
+    var tabs = ['songs','singer','language','category','hot','queue'];
     for (var i = 0; i < tabs.length; i++) {
         var t = tabs[i];
         document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).className = 'tab-item' + (t === tab ? ' active' : '');
@@ -192,6 +216,7 @@ function switchTab(tab) {
     if (tab === 'singer' && !mobileSingerData) loadMobileSingerIndex();
     if (tab === 'language' && !mobileLanguageData) loadMobileLanguageIndex();
     if (tab === 'category' && !mobileCategoryData) loadMobileCategoryIndex();
+    if (tab === 'hot') loadHotSongs();
 }
 
 function loadMobileSingerIndex() {
@@ -267,6 +292,33 @@ function loadMobileLanguageSongs(lang) {
             html += '<div class="song-item" onclick="addToQueue(\'' + s.path.replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">' + showName + '</div>';
         }
         document.getElementById('languageList').innerHTML = html;
+    });
+}
+
+function loadHotSongs() {
+    var hotList = document.getElementById('hotList');
+    hotList.innerHTML = '<div class="empty-hint">加载中...</div>';
+    fetch('/api/hot-songs').then(function(r){return r.json();}).then(function(data){
+        if (!data || data.length === 0) {
+            hotList.innerHTML = '<div class="empty-hint">暂无热播数据<br><span style="font-size:12px;color:#546a7b">歌曲被点播后会自动统计</span></div>';
+            return;
+        }
+        var html = '<div style="padding:8px;color:#f0ad4e;font-size:15px;text-align:center;font-weight:bold">热播排行 <span style="color:#95a5a6;font-weight:normal">(' + data.length + '首)</span></div>';
+        for (var i = 0; i < data.length; i++) {
+            var s = data[i];
+            var rank = i + 1;
+            var rankColor = rank === 1 ? '#f0ad4e' : rank === 2 ? '#95a5a6' : rank === 3 ? '#cd7f32' : '#7f8c8d';
+            var rankIcon = rank <= 3 ? '&#9733; ' : '';
+            var showName = s.name.replace(/\.[^.]+$/, '');
+            html += '<div class="song-item" onclick="addToQueue(\'' + s.path.replace(/\\/g, '/').replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'video\')" style="position:relative;padding-left:36px">';
+            html += '<span style="position:absolute;top:12px;left:8px;font-size:12px;font-weight:bold;color:' + rankColor + '">' + rankIcon + rank + '</span>';
+            html += showName;
+            html += '<span style="float:right;font-size:11px;color:#5bc0de;margin-left:8px">' + s.count + '次</span>';
+            html += '</div>';
+        }
+        hotList.innerHTML = html;
+    }).catch(function(){
+        hotList.innerHTML = '<div class="empty-hint">加载失败</div>';
     });
 }
 
@@ -697,9 +749,45 @@ function renderSongList(songs) {
     for (var i = 0; i < songs.length; i++) {
         var s = songs[i];
         var showName = s.displayName || s.name;
-        html += '<div class="song-item" onclick="addToQueue(\'' + s.path.replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">' + showName + '</div>';
+        html += '<div class="song-item" data-path="' + s.path + '" onclick="addToQueue(\'' + s.path.replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">' + showName + '</div>';
     }
     songList.innerHTML = html;
+    showMobilePlayCounts(songs);
+}
+
+var mobileHotPlayCache = null;
+var mobileHotPlayCacheTime = 0;
+function showMobilePlayCounts(songs) {
+    var now = Date.now();
+    var doRender = function(countMap) {
+        for (var i = 0; i < songs.length; i++) {
+            var count = countMap[songs[i].path];
+            if (count && count > 0) {
+                var items = document.querySelectorAll('.song-item[data-path="' + songs[i].path + '"]');
+                for (var j = 0; j < items.length; j++) {
+                    if (!items[j].querySelector('.play-count-badge')) {
+                        var badge = document.createElement('span');
+                        badge.className = 'play-count-badge';
+                        badge.style.cssText = 'float:right;font-size:11px;color:#5bc0de;margin-left:8px;';
+                        badge.textContent = count + '次';
+                        items[j].appendChild(badge);
+                    }
+                }
+            }
+        }
+    };
+    if (mobileHotPlayCache && now - mobileHotPlayCacheTime < 30000) {
+        doRender(mobileHotPlayCache);
+        return;
+    }
+    fetch('/api/hot-songs').then(function(r){return r.json();}).then(function(data){
+        mobileHotPlayCache = {};
+        for (var i = 0; i < data.length; i++) {
+            mobileHotPlayCache[data[i].path] = data[i].count;
+        }
+        mobileHotPlayCacheTime = now;
+        doRender(mobileHotPlayCache);
+    }).catch(function(){});
 }
 
 function updatePagination() {

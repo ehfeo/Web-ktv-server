@@ -11,32 +11,38 @@ func PlayerHandler(w http.ResponseWriter, r *http.Request) {
 <meta charset="UTF-8">
 <title>KTV 播放屏</title>
 <style>
-*{margin:0;padding:0;background:#000}
+*{margin:0;padding:0;background:linear-gradient(135deg,#1e2d3a 0%,#1a252f 40%,#151f28 100%)}
 body{width:100vw;height:100vh;overflow:hidden}
 .video-container{position:relative;width:100vw;height:100vh;z-index:1}
 video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .lyrics-container{position:absolute;top:0;left:0;width:calc(100vw - 20px);height:85vh;display:flex;align-items:flex-start;justify-content:flex-start;z-index:10;overflow:hidden;pointer-events:none;margin-right:10px}
-.lyrics{width:100%;height:100%;text-align:center;color:#fff;font-size:24px;line-height:1.8;text-shadow:2px 2px 4px rgba(0,0,0,0.8);overflow-y:auto;display:flex;flex-direction:column;align-items:center;pointer-events:auto;box-sizing:border-box;padding:20px 30px 20px 20px}
-.lyrics-line{margin:10px 0;opacity:0.6}
-.lyrics-line.active{opacity:1;font-size:28px;font-weight:bold;color:#00aaff}
-.ctrl-bar{position:fixed;bottom:40px;left:40px;z-index:999;display:flex;gap:15px;opacity:0;transition:opacity 0.3s ease}
-.track-btn{padding:12px 28px;border:none;border-radius:8px;font-size:18px;cursor:pointer;color:#fff}
-.track-btn.active{background:#28a745}
-.track-btn:not(.active){background:#007bff}
-.transcode-btn{padding:12px 28px;border:none;border-radius:8px;font-size:18px;cursor:pointer;color:#fff;background:#e67e22}
-.transcode-btn:hover{background:#d35400}
-.transcode-btn:disabled{background:#666;cursor:not-allowed}
-.tips{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:10px 30px;border-radius:6px;display:none;font-size:18px}
-.transcode-progress{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.95);color:#fff;padding:30px 50px;border-radius:12px;display:none;flex-direction:column;align-items:center;z-index:1000;max-width:600px;max-height:80vh;overflow:hidden}
-.progress-bar{width:300px;height:20px;background:#333;border-radius:10px;overflow:hidden;margin:10px 0}
-.progress-fill{height:100%;background:#00aaff;width:0%}
-.progress-text{font-size:16px;color:#fff;margin-bottom:10px}
-.progress-log{width:100%;height:150px;background:#1a1a2e;border-radius:8px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:12px;color:#00ff88;overflow-y:auto;white-space:pre-wrap}
-.progress-command{width:100%;background:#2a2a4e;border-radius:8px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:11px;color:#ffaa00;overflow-x:auto;margin-bottom:10px}
-.progress-mediainfo{width:100%;background:#1a2a3e;border-radius:8px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:12px;color:#00ccff;white-space:pre-wrap;margin-bottom:10px}
-.play-info{position:fixed;top:20px;right:20px;background:rgba(0,0,0,0.8);color:#fff;padding:10px 20px;border-radius:6px;font-size:16px;z-index:100}
-.play-info .current{color:#00ff00;margin-bottom:5px}
-.play-info .next{color:#ffaa00}
+.lyrics{width:100%;height:100%;text-align:center;color:#fff;font-size:26px;line-height:1.9;text-shadow:0 1px 2px rgba(0,0,0,0.5);overflow-y:auto;display:flex;flex-direction:column;align-items:center;pointer-events:auto;box-sizing:border-box;padding:20px 30px 20px 20px}
+.lyrics-line{margin:10px 0;opacity:0.55;transition:all 0.4s cubic-bezier(.4,0,.2,1)}
+.lyrics-line.active{opacity:1;font-size:32px;font-weight:bold;color:#5bc0de;text-shadow:0 1px 2px rgba(0,0,0,0.5)}
+.ctrl-bar{position:fixed;bottom:40px;left:40px;z-index:999;display:flex;gap:18px;opacity:0;transition:opacity 0.3s ease}
+.track-btn{padding:12px 32px;border:none;border-radius:6px;font-size:18px;font-weight:bold;cursor:pointer;color:#fff;letter-spacing:1px;transition:all 0.2s ease;transform:translateY(0);text-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.track-btn.active{background:#5cb85c;box-shadow:0 2px 4px rgba(0,0,0,0.3)}
+.track-btn.active:hover{background:#4cae4c;box-shadow:0 3px 6px rgba(0,0,0,0.35)}
+.track-btn.active:active{background:#449d44;box-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.track-btn:not(.active){background:#428bca;box-shadow:0 2px 4px rgba(0,0,0,0.3)}
+.track-btn:not(.active):hover{background:#3276b1;box-shadow:0 3px 6px rgba(0,0,0,0.35)}
+.track-btn:not(.active):active{background:#2d6ca2;box-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.transcode-btn{padding:12px 32px;border:none;border-radius:6px;font-size:18px;font-weight:bold;cursor:pointer;color:#fff;letter-spacing:1px;background:#f0ad4e;box-shadow:0 2px 4px rgba(0,0,0,0.3);transition:all 0.2s ease;transform:translateY(0);text-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.transcode-btn:hover{background:#ed9c28;box-shadow:0 3px 6px rgba(0,0,0,0.35)}
+.transcode-btn:active{background:#d58512;box-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.transcode-btn:disabled{background:#555;box-shadow:0 1px 2px rgba(0,0,0,0.2);cursor:not-allowed;transform:translateY(0);color:#999;text-shadow:none}
+.tips{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(26,37,47,0.92);color:#fff;padding:12px 36px;border-radius:6px;display:none;font-size:18px;font-weight:bold;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 2px 8px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06)}
+.transcode-progress{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(26,37,47,0.92);color:#fff;padding:30px 50px;border-radius:8px;display:none;flex-direction:column;align-items:center;z-index:1000;max-width:600px;max-height:80vh;overflow:hidden;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 16px rgba(0,0,0,0.5)}
+.progress-bar{width:300px;height:20px;background:rgba(0,0,0,0.3);border-radius:10px;overflow:hidden;margin:10px 0;box-shadow:inset 0 1px 3px rgba(0,0,0,0.4)}
+.progress-fill{height:100%;background:#428bca;width:0%;border-radius:10px}
+.progress-text{font-size:16px;color:#fff;margin-bottom:10px;text-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.progress-log{width:100%;height:150px;background:rgba(0,0,0,0.3);border-radius:4px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:12px;color:#aaa;overflow-y:auto;white-space:pre-wrap;border:1px solid rgba(255,255,255,0.05);box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
+.progress-command{width:100%;background:rgba(0,0,0,0.3);border-radius:4px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:11px;color:#f0ad4e;overflow-x:auto;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05);box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
+.progress-mediainfo{width:100%;background:rgba(0,0,0,0.3);border-radius:4px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:12px;color:#5bc0de;white-space:pre-wrap;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05);box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
+.play-info{position:fixed;top:20px;right:20px;background:rgba(26,37,47,0.9);color:#fff;padding:12px 24px;border-radius:6px;font-size:16px;font-weight:bold;z-index:100;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 2px 8px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06)}
+.play-info .current{color:#5bc0de;margin-bottom:5px;text-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.play-info .next{color:#f0ad4e;text-shadow:0 1px 2px rgba(0,0,0,0.3)}
+#trackWarningBar{background:#d9534f !important;box-shadow:0 2px 6px rgba(0,0,0,0.3) !important;border-radius:0 !important;position:fixed;top:0;left:0;right:0;z-index:2000;text-shadow:none}
 </style>
 </head>
 <body>
@@ -47,10 +53,10 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
   </div>
 </div>
 <div class="tips" id="tipBox"></div>
-<div id="trackWarningBar" style="display:none;background:#ff4444;color:#fff;padding:10px 16px;font-size:15px;font-weight:bold;text-align:center;animation:warnPulse 2s infinite">
+<div id="trackWarningBar" style="display:none;background:#d9534f;color:#fff;padding:10px 16px;font-size:15px;font-weight:bold;text-align:center;animation:warnPulse 2s infinite">
   <span id="trackWarningText"></span>
 </div>
-<style>@keyframes warnPulse{0%,100%{opacity:1}50%{opacity:0.7}}</style>
+<style>@keyframes warnPulse{0%,100%{opacity:1}50%{opacity:0.85}}</style>
 <div class="play-info" id="playInfo" style="display:none">
   <div class="current" id="currentSong"></div>
   <div class="next" id="nextSong"></div>
@@ -589,12 +595,12 @@ function playVideo(url, name, type) {
 
 function updateNextSongDisplay() {
   var nextItem = null;
-  if (currentPlayingIndex >= 0 && currentPlayingIndex < currentQueue.length - 1) {
-    for (var i = currentPlayingIndex + 1; i < currentQueue.length; i++) {
-      if (currentQueue[i].status === "ready") {
-        nextItem = currentQueue[i];
-        break;
-      }
+  // 从队列最前面扫描下一首可播放的歌曲（跳过当前播放的）
+  for (var i = 0; i < currentQueue.length; i++) {
+    if (i === currentPlayingIndex) continue;
+    if (currentQueue[i].status === "ready") {
+      nextItem = currentQueue[i];
+      break;
     }
   }
   var nextSongEl = document.getElementById('nextSong');
@@ -642,12 +648,12 @@ function handleTimeUpdate() {
     document.getElementById('playInfo').style.display = 'block';
     updateNextSongDisplay();
     var nextItem = null;
-    if (currentPlayingIndex >= 0 && currentPlayingIndex < currentQueue.length - 1) {
-      for (var i = currentPlayingIndex + 1; i < currentQueue.length; i++) {
-        if (currentQueue[i].status === "ready") {
-          nextItem = currentQueue[i];
-          break;
-        }
+    // 从队列最前面扫描下一首可播放的歌曲（跳过当前播放的）
+    for (var i = 0; i < currentQueue.length; i++) {
+      if (i === currentPlayingIndex) continue;
+      if (currentQueue[i].status === "ready") {
+        nextItem = currentQueue[i];
+        break;
       }
     }
     if (nextItem) {

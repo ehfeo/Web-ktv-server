@@ -12,7 +12,27 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
+
+// mediaInfoCache 媒体信息缓存，避免每次点歌都调用ffprobe导致磁盘100%
+var mediaInfoCache struct {
+	sync.RWMutex
+	cache map[string]*mediaInfoCacheEntry
+}
+
+type mediaInfoCacheEntry struct {
+	videoCodec               string
+	allAudioIsAAC            bool
+	allAudioIsMP3            bool
+	allAudioBrowserSupported bool
+	videoBitrate             string
+	audioBitrate             string
+	audioCodecStr            string
+	modTime                  time.Time // 文件修改时间，用于失效检测
+}
+
+const mediaInfoCacheMaxEntries = 2000
 
 func getFFmpegPath() string {
 	currentDir, _ := os.Getwd()
@@ -66,6 +86,7 @@ func init() {
 	globalTranscodeQueue.queue = make([]TranscodeTask, 0)
 	globalTranscodeQueue.isRunning = false
 	globalTranscodeQueue.processIdx = -1
+	mediaInfoCache.cache = make(map[string]*mediaInfoCacheEntry)
 }
 
 func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
@@ -950,6 +971,19 @@ func getDuration(filePath string) float64 {
 }
 
 func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAudioIsMP3 bool, allAudioBrowserSupported bool, videoBitrate, audioBitrate string, audioCodecStr string) {
+	// 查缓存：先获取文件ModTime，如果缓存命中且ModTime一致则直接返回
+	fileInfo, statErr := os.Stat(filePath)
+	if statErr == nil {
+		modTime := fileInfo.ModTime()
+		mediaInfoCache.RLock()
+		if entry, ok := mediaInfoCache.cache[filePath]; ok && entry.modTime.Equal(modTime) {
+			result := entry
+			mediaInfoCache.RUnlock()
+			return result.videoCodec, result.allAudioIsAAC, result.allAudioIsMP3, result.allAudioBrowserSupported, result.videoBitrate, result.audioBitrate, result.audioCodecStr
+		}
+		mediaInfoCache.RUnlock()
+	}
+
 	ffprobePath := getFFprobePath()
 
 	videoCodecCmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filePath)
@@ -1029,6 +1063,33 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 	} else {
 		bitrate, _ := strconv.Atoi(strings.TrimSpace(string(audioBitrateOutput)))
 		audioBitrate = fmt.Sprintf("%dk", bitrate/1000)
+	}
+
+	// 存入缓存
+	if statErr == nil {
+		mediaInfoCache.Lock()
+		// 缓存上限检测，超过时清空一半
+		if len(mediaInfoCache.cache) >= mediaInfoCacheMaxEntries {
+			count := 0
+			for key := range mediaInfoCache.cache {
+				delete(mediaInfoCache.cache, key)
+				count++
+				if count >= mediaInfoCacheMaxEntries/2 {
+					break
+				}
+			}
+		}
+		mediaInfoCache.cache[filePath] = &mediaInfoCacheEntry{
+			videoCodec:               videoCodec,
+			allAudioIsAAC:            allAudioIsAAC,
+			allAudioIsMP3:            allAudioIsMP3,
+			allAudioBrowserSupported: allAudioBrowserSupported,
+			videoBitrate:             videoBitrate,
+			audioBitrate:             audioBitrate,
+			audioCodecStr:            audioCodecStr,
+			modTime:                  fileInfo.ModTime(),
+		}
+		mediaInfoCache.Unlock()
 	}
 
 	return

@@ -21,37 +21,41 @@ func UploadPageHandler(w http.ResponseWriter, r *http.Request) {
 <title>上传歌曲</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{width:100vw;height:100vh;background:linear-gradient(135deg,#0a0a1a 0%,#1a1a3e 50%,#0a0a1a 100%);display:flex;flex-direction:column;align-items:center;font-family:Microsoft YaHei,sans-serif;color:#fff;padding:30px}
-h1{font-size:22px;margin-bottom:20px;color:#00aaff}
-.upload-area{width:100%;max-width:600px;border:2px dashed #555;border-radius:12px;padding:40px 20px;text-align:center;cursor:pointer;transition:all 0.3s;margin-bottom:20px}
-.upload-area:hover,.upload-area.dragover{border-color:#00aaff;background:rgba(0,170,255,0.05)}
-.upload-area .icon{font-size:48px;margin-bottom:10px;opacity:0.6}
-.upload-area .text{font-size:16px;color:#aaa}
-.upload-area .hint{font-size:13px;color:#666;margin-top:8px}
+body{width:100vw;height:100vh;background:#1a252f;display:flex;flex-direction:column;align-items:center;font-family:Microsoft YaHei,sans-serif;color:#ecf0f1;padding:30px}
+h1{font-size:26px;margin-bottom:20px;color:#337ab9;letter-spacing:2px;font-weight:700}
+.upload-area{width:100%;max-width:600px;border:2px dashed #428bca;border-radius:8px;padding:40px 20px;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:20px;background:rgba(66,139,202,0.04);box-shadow:0 1px 4px rgba(0,0,0,0.15)}
+.upload-area:hover,.upload-area.dragover{border-color:#337ab9;background:rgba(66,139,202,0.08);box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+.upload-area .icon{font-size:52px;margin-bottom:10px;opacity:0.7}
+.upload-area .text{font-size:17px;color:#ecf0f1;font-weight:600}
+.upload-area .hint{font-size:12px;color:#95a5a6;margin-top:8px}
 .file-input-wrap{width:100%;max-width:600px;margin-bottom:15px;text-align:center}
-.file-input-wrap input[type="file"]{color:#aaa;font-size:14px}
-.file-input-wrap label{display:inline-block;padding:8px 20px;background:#00aaff;border-radius:6px;color:#fff;cursor:pointer;font-size:14px}
-.file-input-wrap label:hover{background:#0088cc}
+.file-input-wrap input[type="file"]{color:#95a5a6;font-size:14px}
+.file-input-wrap label{display:inline-block;padding:10px 28px;background:#428bca;border-radius:6px;color:#fff;cursor:pointer;font-size:15px;font-weight:600;letter-spacing:0.5px;box-shadow:0 2px 4px rgba(0,0,0,0.15);transition:all 0.15s;border:none}
+.file-input-wrap label:hover{background:#337ab9;box-shadow:0 2px 6px rgba(0,0,0,0.2)}
+.file-input-wrap label:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
 .file-list{width:100%;max-width:600px;flex:1;overflow-y:auto;margin-bottom:15px}
-.file-item{display:flex;align-items:center;gap:10px;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;margin-bottom:6px;font-size:14px}
-.file-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.file-item .size{color:#888;font-size:12px;white-space:nowrap}
-.file-item .remove{cursor:pointer;color:#ff4444;font-size:18px;padding:0 4px}
-.file-item .remove:hover{color:#ff6666}
-.file-item.uploading .name{color:#aaa}
-.file-item.done .name{color:#00e676}
-.file-item.error .name{color:#ff4444}
+.file-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#243342;border-radius:6px;margin-bottom:6px;font-size:14px;box-shadow:0 1px 3px rgba(0,0,0,0.12);border:1px solid #2f4254;transition:all 0.15s}
+.file-item:hover{border-color:#428bca;box-shadow:0 2px 6px rgba(0,0,0,0.18)}
+.file-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#ecf0f1}
+.file-item .size{color:#95a5a6;font-size:12px;white-space:nowrap}
+.file-item .remove{cursor:pointer;color:#d9534f;font-size:20px;padding:0 4px;transition:all 0.15s;font-weight:700}
+.file-item .remove:hover{color:#c9302c}
+.file-item.uploading .name{color:#428bca}
+.file-item.done .name{color:#5cb85c}
+.file-item.error .name{color:#d9534f}
 .progress-wrap{width:100%;max-width:600px;margin-bottom:6px}
-.progress-bar{height:4px;background:#333;border-radius:2px;overflow:hidden}
-.progress-bar .fill{height:100%;background:#00aaff;border-radius:2px;width:0%;transition:width 0.2s}
-.btn-row{display:flex;gap:10px;width:100%;max-width:600px}
-button{padding:10px 24px;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-family:inherit}
-.btn-upload{background:#00aaff;color:#fff;flex:1}
-.btn-upload:hover{background:#0088cc}
-.btn-upload:disabled{background:#333;color:#666;cursor:not-allowed}
-.btn-clear{background:transparent;color:#888;border:1px solid #555}
-.btn-clear:hover{color:#fff;border-color:#888}
-.status{margin-top:10px;font-size:13px;color:#888;text-align:center}
+.progress-bar{height:5px;background:#2f4254;border-radius:3px;overflow:hidden}
+.progress-bar .fill{height:100%;background:#428bca;border-radius:3px;width:0%;transition:width 0.2s}
+.btn-row{display:flex;gap:12px;width:100%;max-width:600px}
+button{padding:12px 28px;border:none;border-radius:6px;font-size:15px;cursor:pointer;font-family:inherit;font-weight:600;letter-spacing:0.5px;transition:all 0.15s}
+.btn-upload{background:#5cb85c;color:#fff;flex:1;box-shadow:0 2px 4px rgba(0,0,0,0.15);border:none}
+.btn-upload:hover{background:#449d44;box-shadow:0 2px 6px rgba(0,0,0,0.2)}
+.btn-upload:active{background:#398439;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+.btn-upload:disabled{background:#3a4a56;color:#6a7a86;cursor:not-allowed;box-shadow:none;transform:none}
+.btn-clear{background:#428bca;color:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.15);border:none}
+.btn-clear:hover{background:#337ab9;box-shadow:0 2px 6px rgba(0,0,0,0.2)}
+.btn-clear:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+.status{margin-top:10px;font-size:13px;color:#95a5a6;text-align:center}
 </style>
 </head>
 <body>

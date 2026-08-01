@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -9,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -550,13 +553,59 @@ func main() {
 	flag.Parse()
 
 	cfg := loadQRConfig()
-	port := cfg.Port
+
+	// 如果命令行指定了端口，直接使用
 	if *portFlag > 0 {
-		port = *portFlag
-		cfg.Port = port
+		cfg.Port = *portFlag
 		saveQRConfig(cfg)
+		startServer(cfg.Port)
+		return
 	}
 
+	// 交互式菜单
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Println()
+		fmt.Println("╔══════════════════════════════════════╗")
+		fmt.Println("║       QR 中继服务器 (qrserver)       ║")
+		fmt.Println("╚══════════════════════════════════════╝")
+		fmt.Printf("  当前服务器端口设置：%d\n", cfg.Port)
+		fmt.Println()
+		fmt.Println("  1. 启动服务器")
+		fmt.Println("  2. 修改端口")
+		fmt.Println("  3. 退出")
+		fmt.Println()
+		fmt.Print("请选择 [1-3]: ")
+
+		input, _ := reader.ReadString('\n')
+		choice := strings.TrimSpace(input)
+
+		switch choice {
+		case "1":
+			startServer(cfg.Port)
+			return
+		case "2":
+			fmt.Print("请输入新端口 (1-65535): ")
+			portInput, _ := reader.ReadString('\n')
+			portStr := strings.TrimSpace(portInput)
+			newPort, err := strconv.Atoi(portStr)
+			if err != nil || newPort < 1 || newPort > 65535 {
+				fmt.Println("  端口无效，请输入1-65535之间的数字")
+				continue
+			}
+			cfg.Port = newPort
+			saveQRConfig(cfg)
+			fmt.Printf("  端口已修改为 %d 并保存\n", newPort)
+		case "3":
+			fmt.Println("  再见！")
+			return
+		default:
+			fmt.Println("  无效选择，请输入 1-3")
+		}
+	}
+}
+
+func startServer(port int) {
 	server := NewServer()
 
 	http.HandleFunc("/ws/ktv", server.handleKTV)
@@ -564,7 +613,10 @@ func main() {
 	http.HandleFunc("/m/", server.handleMobilePage)
 
 	addr := fmt.Sprintf(":%d", port)
-	log.Printf("QR中继服务器启动，监听端口 %d", port)
+	fmt.Printf("\n  QR中继服务器启动，监听端口 %d\n", port)
+	fmt.Printf("  KTV连接地址: ws://localhost:%d/ws/ktv\n", port)
+	fmt.Printf("  移动端连接地址: ws://localhost:%d/ws/mobile\n", port)
+	fmt.Println()
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("服务器启动失败: %v", err)
 	}

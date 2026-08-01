@@ -20,106 +20,129 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     <title>KTV 双屏点歌机 - 控制台</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei}
-        body{background:#080812;color:#fff}
+        body{background:#1a252f;color:#ecf0f1}
         .wrap{display:flex;height:100vh}
-        .ktv-left{width:66.67%;background:#0f1020;border-right:2px solid #1a1a30;display:flex;flex-direction:column}
-        .ktv-top{display:flex;align-items:center;gap:10px;padding:10px 15px;background:#111328;border-bottom:1px solid #222444;min-height:56px}
-        #search{flex:1;padding:8px 14px;background:#181a35;border:none;border-radius:6px;color:#fff;font-size:14px;max-width:300px}
-        #search::placeholder{color:#888}
-        #searchBtn{padding:8px 20px;background:#00aaff;border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer}
-        #searchBtn:hover{background:#0088cc}
-        .top-btn{padding:8px 14px;background:#181a35;border:1px solid #2a2a55;border-radius:6px;color:#ccc;font-size:13px;cursor:pointer;white-space:nowrap}
-        .top-btn:hover{background:#00aaff;color:#fff;border-color:#00aaff}
-        .status-info{display:flex;gap:15px;font-size:14px;color:#00aaff;white-space:nowrap;align-items:center}
-        .toggle-switch{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;color:#888}
+        .ktv-left{width:66.67%;background:#243447;border-right:1px solid #3a5068;display:flex;flex-direction:column}
+        .ktv-top{display:flex;align-items:center;gap:10px;padding:10px 15px;background:#2c3e50;border-bottom:1px solid #3a5068;min-height:56px}
+        #search{flex:1;padding:8px 14px;background:#1a252f;border:1px solid #3a5068;border-radius:4px;color:#ecf0f1;font-size:14px;max-width:300px;transition:border-color 0.2s,box-shadow 0.2s}
+        #search:focus{border-color:#428bca;box-shadow:0 0 0 2px rgba(66,139,202,0.25);outline:none}
+        #search::placeholder{color:#7f8c8d}
+        #searchBtn{padding:8px 20px;background:linear-gradient(180deg,#428bca,#337ab9);border:1px solid #2a6496;border-radius:4px;color:#fff;font-size:14px;font-weight:bold;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        #searchBtn:hover{background:linear-gradient(180deg,#4e97d1,#3578b5);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        #searchBtn:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .top-btn{padding:8px 14px;background:linear-gradient(180deg,#5a6b7d,#4a5568);border:1px solid #3a5068;border-radius:4px;color:#ecf0f1;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .top-btn:hover{background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;border-color:#2a6496;box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .top-btn:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .status-info{display:flex;gap:15px;font-size:14px;color:#5bc0de;white-space:nowrap;align-items:center}
+        .toggle-switch{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;color:#95a5a6}
         .toggle-switch input{display:none}
-        .toggle-slider{width:36px;height:20px;background:#333;border-radius:10px;position:relative;transition:background 0.3s}
-        .toggle-slider::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;background:#888;border-radius:50%;transition:all 0.3s}
-        .toggle-switch input:checked+.toggle-slider{background:#00aaff}
+        .toggle-slider{width:36px;height:20px;background:#3a5068;border-radius:10px;position:relative;transition:background 0.3s}
+        .toggle-slider::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;background:#7f8c8d;border-radius:50%;transition:all 0.3s}
+        .toggle-switch input:checked+.toggle-slider{background:#337ab9}
         .toggle-switch input:checked+.toggle-slider::after{left:18px;background:#fff}
         .song-list{flex:1;overflow-y:auto;padding:6px;display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));grid-template-rows:repeat(auto-fill, 60px);gap:8px}
-        .song-item{padding:6px 4px;background:#181a35;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;text-align:center;transition:all 0.3s ease;overflow:hidden;min-height:60px;max-height:60px;position:relative}
-        .song-item:hover{background:#0066ff;transform:scale(1.02)}
-        .ktv-right{width:33.33%;background:#080812;display:flex;flex-direction:column}
-        .control-bar{padding:10px 15px;background:#0f1020;border-bottom:1px solid #222444;display:flex;justify-content:center;gap:15px;flex-wrap:wrap;min-height:56px;align-items:center}
-        .control-btn{width:80px;height:36px;border-radius:6px;border:none;background:#181a35;color:#fff;font-size:16px;cursor:pointer}
-        .control-btn:hover{background:#00aaff}
-        .control-btn.active{background:#27ae60}
-        .queue-area{flex:1;background:#111328;padding:15px;overflow-y:auto}
-        .queue-title{color:#00aaff;margin-bottom:8px}
-        .queue-item{padding:8px 12px;background:#181a35;margin:4px 0;border-radius:4px;display:flex;justify-content:space-between;align-items:center}
-        .transcode-progress{font-size:12px;color:#ff9900;margin-left:8px}
-        .transcode-progress-bar{width:60px;height:6px;background:#333;border-radius:3px;overflow:hidden;margin:4px 0}
-        .transcode-progress-fill{height:100%;background:#ff9900;border-radius:3px;transition:width 0.3s}
-        .top-btn{background:#0066cc;border:none;color:#fff;border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px}
-        .top-btn:hover{background:#0088ff}
-        .del-btn{background:#ff3333;border:none;color:#fff;border-radius:3px;padding:2px 6px;cursor:pointer}
-        .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,170,255,0.9);color:#fff;padding:10px 24px;border-radius:6px;font-size:14px;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:9999}
+        .song-item{padding:6px 4px 6px 7px;background:#243447;border:1px solid #3a5068;border-left:3px solid #428bca;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;text-align:center;transition:background 0.15s,border-color 0.15s,box-shadow 0.15s;overflow:hidden;min-height:60px;max-height:60px;position:relative;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+        .song-item:hover{background:#2c3e50;border-color:#428bca;box-shadow:0 2px 6px rgba(0,0,0,0.2)}
+        .song-item:active{background:#1e2d3d;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+        .song-item .song-name{color:#bdc3c7;transition:color 0.15s}
+        .song-item:hover .song-name{color:#ecf0f1}
+        .ktv-right{width:33.33%;background:#1e2d3d;display:flex;flex-direction:column;box-shadow:-2px 0 8px rgba(0,0,0,0.15)}
+        .control-bar{padding:10px 15px;background:#2c3e50;border-bottom:1px solid #3a5068;display:flex;justify-content:center;gap:15px;flex-wrap:wrap;min-height:56px;align-items:center}
+        .control-btn{width:80px;height:40px;border-radius:4px;border:1px solid transparent;background:linear-gradient(180deg,#5a6b7d,#4a5568);color:#ecf0f1;font-size:16px;font-weight:bold;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .control-btn:hover{background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .control-btn:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .control-btn.active{background:linear-gradient(180deg,#5cb85c,#4cae4c);border-color:#3d8b3d;box-shadow:0 2px 4px rgba(0,0,0,0.2);color:#fff}
+        .control-btn.active:hover{background:linear-gradient(180deg,#6ec96e,#5cb85c);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .queue-area{flex:1;background:#1e2d3d;padding:15px;overflow-y:auto}
+        .queue-title{color:#428bca;margin-bottom:8px;font-size:16px;font-weight:bold}
+        .queue-item{padding:8px 12px;background:#243447;margin:4px 0;border-radius:4px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 1px 3px rgba(0,0,0,0.1);border:1px solid #3a5068;transition:background 0.15s,border-color 0.15s}
+        .queue-item:hover{background:#2c3e50;border-color:#4a6078}
+        .transcode-progress{font-size:12px;color:#f0ad4e;margin-left:8px}
+        .transcode-progress-bar{width:60px;height:6px;background:#3a5068;border-radius:3px;overflow:hidden;margin:4px 0}
+        .transcode-progress-fill{height:100%;background:#f0ad4e;border-radius:3px;transition:width 0.3s}
+        .top-btn{background:linear-gradient(180deg,#5a6b7d,#4a5568);border:1px solid #3a5068;color:#ecf0f1;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .top-btn:hover{background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;border-color:#2a6496;box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .top-btn:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .del-btn{background:linear-gradient(180deg,#d9534f,#c9302c);border:1px solid #b52b27;color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .del-btn:hover{background:linear-gradient(180deg,#e06b67,#d9534f);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .del-btn:active{background:#b52b27;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#337ab9;color:#fff;padding:10px 24px;border-radius:4px;font-size:14px;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.2)}
         .toast.show{opacity:1}
-        .browse-tabs{display:flex;gap:0;background:#111328;border-bottom:1px solid #222}
-        .browse-tab{flex:1;padding:6px 0;background:transparent;border:none;color:#888;font-size:13px;cursor:pointer;border-bottom:2px solid transparent}
-        .browse-tab.active{color:#0af;border-bottom-color:#0af}
+        .browse-tabs{display:flex;gap:0;background:#2c3e50;border-bottom:1px solid #3a5068}
+        .browse-tab{flex:1;padding:10px 0;background:transparent;border:none;border-top:2px solid transparent;border-bottom:2px solid transparent;color:#95a5a6;font-size:16px;font-weight:bold;cursor:pointer;transition:color 0.2s,background 0.2s,border-color 0.2s;position:relative}
+        .browse-tab:hover{color:#bdc3c7;background:#243447}
+        .browse-tab.active{color:#428bca;background:transparent;border-bottom:2px solid #428bca}
         .singer-panel{flex:1;overflow-y:auto;display:flex;flex-direction:column}
-        .singer-letters{display:flex;flex-wrap:wrap;gap:2px;padding:6px 8px;background:#0f1020;border-bottom:1px solid #222;flex-shrink:0}
-        .singer-letters span{padding:2px 7px;background:#181a35;border-radius:3px;color:#aaa;font-size:12px;cursor:pointer}
-        .singer-letters span:hover,.singer-letters span.active{background:#0af;color:#fff}
+        .singer-letters{display:flex;flex-wrap:wrap;gap:3px;padding:6px 8px;background:#2c3e50;border-bottom:1px solid #3a5068;flex-shrink:0}
+        .singer-letters span{padding:3px 8px;background:#243447;border:1px solid #3a5068;border-radius:3px;color:#bdc3c7;font-size:12px;cursor:pointer;transition:background 0.15s,color 0.15s,border-color 0.15s}
+        .singer-letters span:hover,.singer-letters span.active{background:#428bca;color:#fff;border-color:#3578b5}
         .singer-list{flex:1;overflow-y:auto;padding:6px}
         .singer-grid{padding:6px;display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));grid-template-rows:repeat(auto-fill,50px);gap:6px}
-        .singer-btn{padding:6px 4px;background:#181a35;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;min-height:50px;max-height:50px;transition:all 0.2s}
-        .singer-btn:hover{background:#0066ff;transform:scale(1.02)}
-        .singer-btn .sname{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
-        .singer-btn .scount{font-size:10px;color:#888}
+        .singer-btn{padding:6px 4px;background:#243447;border:1px solid #3a5068;border-left:3px solid #428bca;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;min-height:50px;max-height:50px;transition:background 0.15s,border-color 0.15s,box-shadow 0.15s;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+        .singer-btn:hover{background:#2c3e50;border-color:#428bca;box-shadow:0 2px 6px rgba(0,0,0,0.2)}
+        .singer-btn:active{background:#1e2d3d;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+        .singer-btn .sname{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;color:#bdc3c7}
+        .singer-btn .scount{font-size:10px;color:#5bc0de}
         .cat-grid{padding:6px;display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));grid-template-rows:repeat(auto-fill,50px);gap:6px}
-        .cat-btn{padding:6px 4px;background:#181a35;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;min-height:50px;max-height:50px;transition:all 0.2s}
-        .cat-btn:hover{background:#0066ff;transform:scale(1.02)}
-        .cat-btn .cname{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
-        .cat-btn .ccount{font-size:10px;color:#888}
+        .cat-btn{padding:6px 4px;background:#243447;border:1px solid #3a5068;border-left:3px solid #5bc0de;border-radius:4px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;overflow:hidden;min-height:50px;max-height:50px;transition:background 0.15s,border-color 0.15s,box-shadow 0.15s;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+        .cat-btn:hover{background:#2c3e50;border-color:#5bc0de;box-shadow:0 2px 6px rgba(0,0,0,0.2)}
+        .cat-btn:active{background:#1e2d3d;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+        .cat-btn .cname{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;color:#bdc3c7}
+        .cat-btn .ccount{font-size:10px;color:#5bc0de}
         .singer-songs{padding:6px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));grid-template-rows:repeat(auto-fill,60px);gap:8px}
-        .singer-back{padding:8px 12px;background:#222444;margin-bottom:6px;border-radius:4px;cursor:pointer;color:#0af;font-size:13px;text-align:center}
-        .singer-back:hover{background:#2a2a4e}
-        .pagination{padding:10px;background:#111328;border-top:1px solid #222444;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;max-height:80px;overflow-y:auto}
+        .singer-back{padding:8px 12px;background:linear-gradient(180deg,#5a6b7d,#4a5568);margin-bottom:6px;border-radius:4px;cursor:pointer;color:#ecf0f1;font-size:13px;font-weight:bold;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .singer-back:hover{background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .singer-back:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .pagination{padding:10px;background:#2c3e50;border-top:1px solid #3a5068;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;max-height:80px;overflow-y:auto}
         .page-buttons{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center}
-        .page-btn{padding:4px 8px;background:#222444;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:14px}
-        .page-btn.active{background:#00aaff}
-        .page-btn:disabled{background:#181a35;color:#666;cursor:not-allowed}
-        .loading{text-align:center;color:#888;padding:20px}
-        .nav-page{position:fixed;top:0;left:0;width:100%;height:100%;background:#080812;z-index:1000;display:none;overflow-y:auto}
+        .page-btn{padding:4px 10px;background:#243447;border:1px solid #3a5068;border-radius:3px;color:#ecf0f1;cursor:pointer;font-size:14px;font-weight:bold;box-shadow:0 1px 3px rgba(0,0,0,0.1);transition:background 0.15s,box-shadow 0.15s}
+        .page-btn:hover{background:#428bca;color:#fff;border-color:#3578b5;box-shadow:0 2px 4px rgba(0,0,0,0.2)}
+        .page-btn:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
+        .page-btn.active{background:#428bca;border-color:#3578b5;color:#fff}
+        .page-btn:disabled{background:#1e2d3d;color:#5a6b7d;cursor:not-allowed;box-shadow:none;border-color:#2c3e50}
+        .loading{text-align:center;color:#95a5a6;padding:20px}
+        .nav-page{position:fixed;top:0;left:0;width:100%;height:100%;background:#1a252f;z-index:1000;display:none;overflow-y:auto}
         .nav-page.active{display:block}
         .nav-content{max-width:700px;margin:0 auto;padding:30px 20px}
-        .nav-title{font-size:28px;margin-bottom:8px;color:#00aaff;text-align:center}
-        .nav-subtitle{font-size:14px;color:#888;text-align:center;margin-bottom:20px}
+        .nav-title{font-size:28px;margin-bottom:8px;color:#428bca;text-align:center}
+        .nav-subtitle{font-size:14px;color:#95a5a6;text-align:center;margin-bottom:20px}
         .nav-section{margin-bottom:18px}
-        .nav-section-title{font-size:15px;color:#00aaff;margin-bottom:8px;border-bottom:1px solid #222444;padding-bottom:4px}
-        .nav-card{background:#111328;border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:flex-start;gap:10px}
+        .nav-section-title{font-size:15px;color:#428bca;margin-bottom:8px;border-bottom:2px solid #3a5068;padding-bottom:6px}
+        .nav-card{background:#243447;border:1px solid #3a5068;border-radius:4px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:flex-start;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.1);transition:box-shadow 0.2s,border-color 0.2s}
+        .nav-card:hover{box-shadow:0 2px 8px rgba(0,0,0,0.2);border-color:#4a6078}
         .nav-card-icon{font-size:20px;flex-shrink:0;line-height:1.3}
         .nav-card-body{flex:1;min-width:0}
-        .nav-card-title{font-size:14px;font-weight:bold;margin-bottom:2px}
-        .nav-card-detail{font-size:12px;color:#aaa;line-height:1.5}
+        .nav-card-title{font-size:14px;font-weight:bold;margin-bottom:2px;color:#ecf0f1}
+        .nav-card-detail{font-size:12px;color:#95a5a6;line-height:1.5}
         .nav-card-action{margin-top:6px}
-        .nav-card-action a,.nav-card-action button{display:inline-block;padding:6px 16px;border:none;border-radius:4px;font-size:12px;cursor:pointer;text-decoration:none;margin-right:6px;margin-top:4px;transition:all 0.2s}
-        .nav-action-settings{background:#00aaff;color:#fff}
-        .nav-action-settings:hover{background:#0088cc}
-        .nav-action-link{background:#333;color:#88ddff;text-decoration:underline;border:none;cursor:pointer}
-        .nav-action-link:hover{color:#aaffff}
-        .nav-status-ok{color:#00ff88}
-        .nav-status-warn{color:#ffaa00}
-        .nav-status-err{color:#ff4444}
-        .nav-track-notice{background:#1a1a3e;border:1px solid #2a2a55;border-radius:8px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:#ccc;line-height:1.6}
-        .nav-track-notice input[type=text]{width:100%;padding:8px;background:#333;border:none;border-radius:4px;color:#fff;font-size:13px;margin:8px 0;box-sizing:border-box}
-        .nav-track-notice button{padding:6px 16px;background:#00aaff;border:none;border-radius:4px;color:#fff;font-size:13px;cursor:pointer}
-        .nav-track-notice button:hover{background:#0088cc}
-        .nav-skip{display:block;width:100%;padding:12px;background:#222444;color:#aaa;border:none;border-radius:6px;font-size:16px;margin-top:20px;cursor:pointer;text-align:center}
-        .nav-skip:hover{background:#333555;color:#ccc}
-        .nav-skip-critical{background:#441111;color:#ff8888}
-        .nav-skip-critical:hover{background:#552222;color:#ffaaaa}
-        .qr-modal{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.8);display:none;align-items:center;justify-content:center;z-index:10000}
-        .qr-modal-content{background:#1a1a3e;border-radius:12px;padding:30px;text-align:center;max-width:350px}
-        .qr-modal-content h2{color:#00aaff;margin-bottom:15px;font-size:20px}
-        .qr-modal-content img{border-radius:8px;margin:10px 0}
-        .qr-modal-content .qr-info{color:#888;font-size:13px;margin:8px 0}
+        .nav-card-action a,.nav-card-action button{display:inline-block;padding:6px 16px;border:none;border-radius:4px;font-size:12px;cursor:pointer;text-decoration:none;margin-right:6px;margin-top:4px;transition:background 0.15s,box-shadow 0.15s;box-shadow:0 2px 4px rgba(0,0,0,0.2)}
+        .nav-action-settings{background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;border:1px solid #2a6496}
+        .nav-action-settings:hover{background:linear-gradient(180deg,#4e97d1,#3578b5);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .nav-action-settings:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .nav-action-link{background:#243447;color:#5bc0de;text-decoration:underline;border:1px solid #3a5068;cursor:pointer}
+        .nav-action-link:hover{color:#6ecff1;border-color:#4a6078}
+        .nav-status-ok{color:#5cb85c}
+        .nav-status-warn{color:#f0ad4e}
+        .nav-status-err{color:#d9534f}
+        .nav-track-notice{background:#243447;border:1px solid #3a5068;border-radius:4px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:#95a5a6;line-height:1.6;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+        .nav-track-notice input[type=text]{width:100%;padding:8px;background:#1a252f;border:1px solid #3a5068;border-radius:3px;color:#ecf0f1;font-size:13px;margin:8px 0;box-sizing:border-box}
+        .nav-track-notice input[type=text]:focus{border-color:#428bca;outline:none}
+        .nav-track-notice button{padding:6px 16px;background:linear-gradient(180deg,#428bca,#337ab9);border:1px solid #2a6496;border-radius:4px;color:#fff;font-size:13px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .nav-track-notice button:hover{background:linear-gradient(180deg,#4e97d1,#3578b5);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .nav-skip{display:block;width:100%;padding:14px;background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;border:1px solid #2a6496;border-radius:4px;font-size:18px;font-weight:bold;margin-top:20px;cursor:pointer;text-align:center;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .nav-skip:hover{background:linear-gradient(180deg,#4e97d1,#3578b5);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .nav-skip:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        .nav-skip-critical{background:linear-gradient(180deg,#d9534f,#c9302c);border-color:#b52b27}
+        .nav-skip-critical:hover{background:linear-gradient(180deg,#e06b67,#d9534f)}
+        .qr-modal{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:10000}
+        .qr-modal-content{background:#fff;border:1px solid #ddd;border-radius:4px;padding:30px;text-align:center;max-width:350px;box-shadow:0 4px 16px rgba(0,0,0,0.2)}
+        .qr-modal-content h2{color:#337ab9;margin-bottom:15px;font-size:20px}
+        .qr-modal-content img{border-radius:4px;margin:10px 0;box-shadow:0 1px 4px rgba(0,0,0,0.1)}
+        .qr-modal-content .qr-info{color:#666;font-size:13px;margin:8px 0}
         .qr-modal-content .qr-status{font-size:14px;margin:10px 0}
-        .qr-modal-content button{margin-top:15px;padding:8px 24px;border:none;border-radius:6px;background:#00aaff;color:#fff;cursor:pointer;font-size:14px}
-        .qr-modal-content button:hover{background:#0088cc}
+        .qr-modal-content button{margin-top:15px;padding:8px 24px;border:1px solid #2a6496;border-radius:4px;background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;cursor:pointer;font-size:14px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .qr-modal-content button:hover{background:linear-gradient(180deg,#4e97d1,#3578b5);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
+        .qr-modal-content button:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
     </style>
 </head>
 <body>
@@ -157,6 +180,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             <button class="browse-tab" id="tabSinger" onclick="switchBrowseTab('singer')">歌手</button>
             <button class="browse-tab" id="tabLanguage" onclick="switchBrowseTab('language')">语种</button>
             <button class="browse-tab" id="tabCategory" onclick="switchBrowseTab('category')">曲种</button>
+            <button class="browse-tab" id="tabHot" onclick="switchBrowseTab('hot')">热播</button>
         </div>
         <div class="song-list" id="songList">
             <div class="loading">加载中...</div>
@@ -170,6 +194,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         </div>
         <div class="singer-panel" id="categoryPanel" style="display:none">
             <div class="singer-list" id="categoryList"></div>
+        </div>
+        <div class="singer-panel" id="hotPanel" style="display:none">
+            <div class="singer-list" id="hotList"></div>
         </div>
         <div class="pagination" id="pagination">
             <div class="page-buttons" id="pageButtons"></div>
@@ -186,7 +213,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         <div class="queue-area">
             <div class="queue-title">播放队列</div>
             <div id="queueList"></div>
-            <button class="control-btn" style="width:100%;margin-top:8px;background:#181a35;border:1px dashed #2a2a55" onclick="randomSong()">随机点歌</button>
+            <button class="control-btn" style="width:100%;margin-top:8px;background:linear-gradient(180deg,#f0ad4e,#ec971f);border:1px solid #d58512;color:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.2);font-weight:bold;font-size:15px" onclick="randomSong()">随机点歌</button>
         </div>
     </div>
 </div>
@@ -218,6 +245,56 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     var transcodePollInterval = null;
     var currentPlayingIndex = -1;
 
+    // 播放队列持久化（12小时有效期）
+    var QUEUE_STORAGE_KEY = 'ktv_playQueue';
+    var QUEUE_EXPIRE_MS = 12 * 60 * 60 * 1000; // 12小时
+
+    function saveQueueToStorage() {
+        try {
+            var data = {
+                queue: queue,
+                currentPlayingIndex: currentPlayingIndex,
+                timestamp: Date.now()
+            };
+            localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(data));
+        } catch(e) {}
+    }
+
+    function loadQueueFromStorage() {
+        try {
+            var raw = localStorage.getItem(QUEUE_STORAGE_KEY);
+            if (!raw) return null;
+            var data = JSON.parse(raw);
+            if (!data || !data.queue || !data.timestamp) return null;
+            if (Date.now() - data.timestamp > QUEUE_EXPIRE_MS) {
+                localStorage.removeItem(QUEUE_STORAGE_KEY);
+                return null;
+            }
+            // 恢复时清理运行时状态，仅保留播放所需字段
+            var restoredQueue = [];
+            for (var i = 0; i < data.queue.length; i++) {
+                var item = data.queue[i];
+                restoredQueue.push({
+                    path: item.path,
+                    name: item.name,
+                    type: item.type,
+                    displayName: item.displayName || '',
+                    status: 'checking',
+                    transcodeProgress: 0,
+                    requestKey: item.path
+                });
+            }
+            return {
+                queue: restoredQueue,
+                currentPlayingIndex: (data.currentPlayingIndex >= 0 && data.currentPlayingIndex < restoredQueue.length) ? data.currentPlayingIndex : -1
+            };
+        } catch(e) { return null; }
+    }
+
+    function clearQueueStorage() {
+        try { localStorage.removeItem(QUEUE_STORAGE_KEY); } catch(e) {}
+    }
+
     // 定时检测播放窗口是否被关闭
     // 如果用户直接关闭播放窗口，无法触发 video.onended → postMessage("ended")
     // 此定时器作为兜底：窗口关闭时标记当前歌曲播放结束（不自动播放下一首）
@@ -234,6 +311,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             queue.splice(currentPlayingIndex, 1);
             currentPlayingIndex = -1;
             renderQueue();
+            saveQueueToStorage();
         }
     }, 2000);
     var mySessionId = '';
@@ -261,12 +339,12 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if(existing) existing.remove();
         var div = document.createElement('div');
         div.id = 'popupWarning';
-        div.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;';
-        div.innerHTML = '<div style="background:#1a1a3e;border:2px solid #ff4444;border-radius:12px;padding:40px;max-width:500px;text-align:center;">' +
-            '<div style="font-size:48px;color:#ff4444;margin-bottom:20px;">&#9888;</div>' +
-            '<div style="font-size:22px;color:#fff;margin-bottom:15px;">播放窗口被浏览器阻止！</div>' +
-            '<div style="font-size:16px;color:#ccc;margin-bottom:20px;line-height:1.8;">请在浏览器地址栏右侧点击弹窗阻止图标，<br>选择"始终允许来自此网站的弹出式窗口"，<br>然后刷新页面重试。</div>' +
-            '<button onclick="document.getElementById(\'popupWarning\').remove()" style="padding:10px 30px;background:#00aaff;border:none;border-radius:6px;color:#fff;font-size:16px;cursor:pointer;">我知道了</button>' +
+        div.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    div.innerHTML = '<div style="background:#fff;border:1px solid #d9534f;border-radius:4px;padding:40px;max-width:500px;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);">' +
+        '<div style="font-size:48px;color:#d9534f;margin-bottom:20px;">&#9888;</div>' +
+        '<div style="font-size:22px;color:#333;margin-bottom:15px;">播放窗口被浏览器阻止！</div>' +
+        '<div style="font-size:16px;color:#666;margin-bottom:20px;line-height:1.8;">请在浏览器地址栏右侧点击弹窗阻止图标，<br>选择"始终允许来自此网站的弹出式窗口"，<br>然后刷新页面重试。</div>' +
+        '<button onclick="document.getElementById(\'popupWarning\').remove()" style="padding:10px 30px;background:linear-gradient(180deg,#428bca,#337ab9);border:1px solid #2a6496;border-radius:4px;color:#fff;font-size:16px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);">我知道了</button>' +
             '</div>';
         document.body.appendChild(div);
     }
@@ -334,7 +412,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             document.getElementById('qrSessionId').textContent = '会话ID: ' + mySessionId;
             document.getElementById('qrUrl').textContent = qrUrl;
             document.getElementById('qrStatus').textContent = '已连接';
-            document.getElementById('qrStatus').style.color = '#00e676';
+            document.getElementById('qrStatus').style.color = '#5cb85c';
         }).catch(e => {
             alert('获取二维码状态失败');
         });
@@ -412,9 +490,12 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         var queueItem = {path:path,name:name,type:type,status:"checking",transcodeProgress:0,requestKey:path};
         queue.push(queueItem);
         renderQueue();
+        saveQueueToStorage();
         var isAudio = isAudioFile(name);
         ensurePlayer(isAudio);
         checkAndRequestTranscode(0);
+        // 统计点播次数
+        fetch('/api/increment-play?name=' + encodeURIComponent(path), {method:'POST'}).catch(function(){});
     }
 
     function addToQueue(path,name,type,displayName,insertNext){
@@ -432,6 +513,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             queue.push(queueItem);
         }
         renderQueue();
+        saveQueueToStorage();
 
         var newIdx = insertNext && currentPlayingIndex >= 0 ? currentPlayingIndex + 1 : queue.length - 1;
 
@@ -441,6 +523,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
 
         checkAndRequestTranscode(newIdx);
+        // 统计点播次数
+        fetch('/api/increment-play?name=' + encodeURIComponent(path), {method:'POST'}).catch(function(){});
     }
 
     function checkAndRequestTranscode(idx){
@@ -514,11 +598,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         for(var i=0;i<queue.length;i++){
             var item = queue[i];
             var isCurrent = (i === currentPlayingIndex);
-            html += '<div class="queue-item" style="' + (isCurrent ? 'border-left:3px solid #00ff00;' : '') + '">';
+            html += '<div class="queue-item" style="' + (isCurrent ? 'border-left:3px solid #5cb85c;background:#243447;' : '') + '">';
             html += '<div style="flex: 1;">';
             html += '<span>'+(i+1)+'. '+(item.displayName||item.name)+'</span>';
             if(isCurrent){
-                html += ' <span style="color:#00ff00; margin-left: 8px;">正在播放</span>';
+                html += ' <span style="color:#5cb85c; margin-left: 8px;">正在播放</span>';
             } else if(item.status === "transcoding"){
                 html += '<div class="transcode-progress">';
                 html += '<div class="transcode-progress-bar"><div class="transcode-progress-fill" style="width:'+item.transcodeProgress+'%"></div></div>';
@@ -528,23 +612,23 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 }
                 html += '</div>';
             } else if(item.status === "waiting"){
-                html += '<span style="color:#ff9900; margin-left: 8px;">等待转码</span>';
+                html += '<span style="color:#f0ad4e; margin-left: 8px;">等待转码</span>';
                 if(item.codecInfo){
                     html += ' <span style="color:#aaa; font-size:11px;">('+item.codecInfo+')</span>';
                 }
                 if(item.queuePosition !== undefined && item.queuePosition > 0){
-                    html += ' <span style="color:#00aaff;">(排队: 第'+item.queuePosition+'首)</span>';
+                    html += ' <span style="color:#5bc0de;">(排队: 第'+item.queuePosition+'首)</span>';
                 }
             } else if(item.status === "checking"){
-                html += '<span style="color:#888; margin-left: 8px;">检查中...</span>';
+                html += '<span style="color:#ccc; margin-left: 8px;">检查中...</span>';
             } else if(item.status === "ready"){
                 if(!isCurrent){
-                    html += '<span style="color:#00ff00; margin-left: 8px;">已就绪</span>';
+                    html += '<span style="color:#5bc0de; margin-left: 8px;">已就绪</span>';
                 }
             }
             // 显示轨道异常警告
             if(item.trackWarning){
-                html += '<div style="color:#ff4444;font-size:12px;font-weight:bold;background:#fff3f3;border:1px solid #ff4444;border-radius:4px;padding:2px 6px;margin-top:2px;">';
+                html += '<div style="color:#fff;font-size:12px;font-weight:bold;background:#d9534f;border:1px solid #c9302c;border-radius:3px;padding:2px 6px;margin-top:2px;">';
                 if(item.trackWarning.noVideo) html += '🎬无画面 ';
                 if(item.trackWarning.noAudio) html += '🔊无声音 ';
                 html += item.trackWarning.message + '</div>';
@@ -583,6 +667,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
         // 现在 item 在 targetIdx（已调整后的位置）
         renderQueue();
+        saveQueueToStorage();
     }
 
     function delQueue(idx){
@@ -595,6 +680,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             currentPlayingIndex--;
         }
         renderQueue();
+        if(queue.length === 0) clearQueueStorage(); else saveQueueToStorage();
     }
 
     function playQueueItem(idx){
@@ -652,7 +738,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                         if(!badge){
                             badge = document.createElement('div');
                             badge.className = 'track-warning';
-                            badge.style.cssText = 'color:#ff4444;font-size:12px;font-weight:bold;padding:2px 6px;background:#fff3f3;border:1px solid #ff4444;border-radius:4px;margin-top:2px;display:inline-block;';
+                            badge.style.cssText = 'color:#fff;font-size:12px;font-weight:bold;padding:2px 6px;background:#d9534f;border:1px solid #c9302c;border-radius:3px;margin-top:2px;display:inline-block;';
                             el.appendChild(badge);
                         }
                         var icon = data.noVideo ? '🎬❌' : '';
@@ -671,23 +757,32 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         currentPlayingIndex = 0;
         playQueueItem(0);
         renderQueue();
+        saveQueueToStorage();
     }
 
     function nextSong(){
         if(queue.length === 0) return;
         if(currentPlayingIndex >= 0 && currentPlayingIndex < queue.length){
             queue.splice(currentPlayingIndex, 1);
-            if(currentPlayingIndex >= queue.length){
-                currentPlayingIndex = -1;
+        }
+        currentPlayingIndex = -1;
+
+        // 从队列最前面扫描下一首可播放的歌曲
+        var nextIdx = -1;
+        for(var i = 0; i < queue.length; i++){
+            if(queue[i].status === "ready"){
+                nextIdx = i;
+                break;
             }
         }
-        renderQueue();
-        if(currentPlayingIndex === -1){
-            tryAutoPlay();
-        } else {
-            playQueueItem(currentPlayingIndex);
-            renderQueue();
+
+        if(nextIdx >= 0){
+            currentPlayingIndex = nextIdx;
+            playQueueItem(nextIdx);
         }
+
+        renderQueue();
+        if(queue.length === 0) clearQueueStorage(); else saveQueueToStorage();
     }
 
     function randomSong(){
@@ -759,6 +854,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             html += '</div>';
         }
         songList.innerHTML = html;
+        // 显示点播次数（从热播数据中匹配）
+        showPlayCounts(songs);
     }
 
     function calculateFontSize(text) {
@@ -1057,11 +1154,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         // --- 阻断性问题（高亮显示在最上方） ---
         if (data.blockingIssues && data.blockingIssues.length > 0) {
             html += '<div class="nav-section">';
-            html += '<div class="nav-section-title" style="color:#ff4444;border-bottom-color:#ff4444">需要处理的问题</div>';
+            html += '<div class="nav-section-title" style="color:#d9534f;border-bottom-color:#d9534f">需要处理的问题</div>';
             for (var i = 0; i < data.blockingIssues.length; i++) {
                 var iss = data.blockingIssues[i];
                 var icon = iss.level === 'critical' ? '<span class="nav-status-err">&#9888;</span>' : '<span class="nav-status-warn">&#9888;</span>';
-                html += '<div class="nav-card" style="border-left:3px solid ' + (iss.level === 'critical' ? '#ff4444' : '#ffaa00') + '">';
+                html += '<div class="nav-card" style="border-left:3px solid ' + (iss.level === 'critical' ? '#d9534f' : '#f0ad4e') + '">';
                 html += '<div class="nav-card-icon">' + icon + '</div>';
                 html += '<div class="nav-card-body">';
                 html += '<div class="nav-card-title">' + escHtml(iss.title) + '</div>';
@@ -1099,7 +1196,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             html += '<div class="nav-card-detail">GPU 硬件加速已启用，转码速度更快</div>';
             html += '</div></div>';
         } else {
-            html += '<div class="nav-card"><div class="nav-card-icon"><span style="color:#888">&#9432;</span></div>';
+            html += '<div class="nav-card"><div class="nav-card-icon"><span style="color:#7f8c8d">&#9432;</span></div>';
             html += '<div class="nav-card-body"><div class="nav-card-title">CPU 编码 (libx264)</div>';
             html += '<div class="nav-card-detail">GPU 加速不可用，将使用 CPU 编码（速度较慢但功能正常）</div>';
             html += '</div></div>';
@@ -1131,7 +1228,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 dDetail = d.errorReason || '不存在';
             } else if (!data.mediaScanDone) {
                 // 曲库尚未扫描，文件数未知
-                dIcon = '<span style="color:#888">&#9432;</span>';
+                dIcon = '<span style="color:#7f8c8d">&#9432;</span>';
                 dTitle = escHtml(d.path);
                 dDetail = '文件数量待扫描后统计';
             } else if (d.fileCount === 0) {
@@ -1184,7 +1281,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             default: return;
         }
         container.style.display = 'block';
-        var html = '<strong style="color:#ffaa00">音轨切换提示：</strong>当前浏览器未启用音轨切换实验功能。<br>';
+        var html = '<strong style="color:#f0ad4e">音轨切换提示：</strong>当前浏览器未启用音轨切换实验功能。<br>';
         html += '请复制下方地址到浏览器地址栏，开启 <code>Experimental Web Platform features</code> 后刷新页面。<br>';
         html += '<input type="text" id="settingsUrlInput" value="' + escHtml(settingsUrl) + '" readonly>';
         html += '<button onclick="copySettingsUrl()">复制地址</button>';
@@ -1218,6 +1315,18 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     window.onload = function(){
+        // 恢复之前的播放队列
+        var savedData = loadQueueFromStorage();
+        if(savedData && savedData.queue && savedData.queue.length > 0){
+            queue = savedData.queue;
+            currentPlayingIndex = -1; // 页面重载后播放窗口已不存在，不恢复播放状态
+            renderQueue();
+            // 对恢复的队列项逐个检查转码状态
+            for(var i = 0; i < queue.length; i++){
+                checkAndRequestTranscode(i);
+            }
+        }
+
         // 始终显示欢迎页面（展示系统自检信息 + 音轨提示）
         renderWelcomePage();
 
@@ -1256,8 +1365,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     var categoryData = null;
 
     function switchBrowseTab(tab) {
-        var tabs = ['search','singer','language','category'];
-        var panels = {search:'songList',singer:'singerPanel',language:'languagePanel',category:'categoryPanel'};
+        var tabs = ['search','singer','language','category','hot'];
+        var panels = {search:'songList',singer:'singerPanel',language:'languagePanel',category:'categoryPanel',hot:'hotPanel'};
         for (var i = 0; i < tabs.length; i++) {
             var t = tabs[i];
             document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).className = 'browse-tab' + (t === tab ? ' active' : '');
@@ -1268,6 +1377,74 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if (tab === 'singer' && !singerData) loadSingerIndex();
         if (tab === 'language' && !languageData) loadLanguageIndex();
         if (tab === 'category' && !categoryData) loadCategoryIndex();
+        if (tab === 'hot') loadHotSongs();
+    }
+
+    var hotPlayCache = null;
+    var hotPlayCacheTime = 0;
+    function showPlayCounts(songs) {
+        var now = Date.now();
+        var doRender = function(countMap) {
+            for (var i = 0; i < songs.length; i++) {
+                var count = countMap[songs[i].path];
+                if (count && count > 0) {
+                    var items = document.querySelectorAll('.song-item[data-path="' + songs[i].path + '"]');
+                    for (var j = 0; j < items.length; j++) {
+                        if (!items[j].querySelector('.play-count-badge')) {
+                            var badge = document.createElement('span');
+                            badge.className = 'play-count-badge';
+                            badge.style.cssText = 'position:absolute;bottom:2px;right:4px;font-size:10px;color:#5bc0de;';
+                            badge.textContent = count + '次';
+                            items[j].appendChild(badge);
+                        }
+                    }
+                }
+            }
+        };
+
+        if (hotPlayCache && now - hotPlayCacheTime < 30000) {
+            doRender(hotPlayCache);
+            return;
+        }
+
+        fetch('/api/hot-songs').then(function(r){return r.json();}).then(function(data){
+            hotPlayCache = {};
+            for (var i = 0; i < data.length; i++) {
+                hotPlayCache[data[i].path] = data[i].count;
+            }
+            hotPlayCacheTime = now;
+            doRender(hotPlayCache);
+        }).catch(function(){});
+    }
+
+    function loadHotSongs() {
+        var hotList = document.getElementById('hotList');
+        hotList.innerHTML = '<div class="loading">加载中...</div>';
+        fetch('/api/hot-songs').then(function(r){return r.json();}).then(function(data){
+            if (!data || data.length === 0) {
+                hotList.innerHTML = '<div style="text-align:center;color:#888;padding:40px 20px;font-size:16px">暂无热播数据<br><span style="font-size:13px;color:#555">歌曲被点播后会自动统计</span></div>';
+                return;
+            }
+            var html = '<div style="padding:8px;color:#f0ad4e;font-size:15px;text-align:center;font-weight:bold">热播排行 <span style="color:#95a5a6;font-weight:normal">(' + data.length + '首)</span></div>';
+            html += '<div class="singer-songs">';
+            for (var i = 0; i < data.length; i++) {
+                var s = data[i];
+                var rank = i + 1;
+                var rankColor = rank === 1 ? '#f0ad4e' : rank === 2 ? '#95a5a6' : rank === 3 ? '#cd7f32' : '#7f8c8d';
+                var rankIcon = rank <= 3 ? '&#9733;' : '';
+                var showName = s.name.replace(/\.[^.]+$/, '');
+                var fontSize = calculateFontSize(showName);
+                html += '<div class="song-item" onclick="addToQueue(\'' + s.path.replace(/\\/g, '/').replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'video\')">';
+                html += '<span style="position:absolute;top:2px;left:4px;font-size:11px;font-weight:bold;color:' + rankColor + '">' + rankIcon + rank + '</span>';
+                html += '<span class="song-name" style="font-size:' + fontSize + 'px;padding-left:22px;">' + showName + '</span>';
+                html += '<span style="position:absolute;bottom:2px;right:4px;font-size:10px;color:#5bc0de">' + s.count + '次</span>';
+                html += '</div>';
+            }
+            html += '</div>';
+            hotList.innerHTML = html;
+        }).catch(function(){
+            hotList.innerHTML = '<div style="text-align:center;color:#ff4444;padding:20px">加载失败</div>';
+        });
     }
 
     function loadSingerIndex() {
@@ -1306,7 +1483,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
         html += '</div>';
         if (singers.length === 0) {
-            html = '<div style="text-align:center;color:#555;padding:20px">暂无歌手</div>';
+            html = '<div style="text-align:center;color:#ccc;padding:20px">暂无歌手</div>';
         }
         document.getElementById('singerList').innerHTML = html;
     }
@@ -1315,7 +1492,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         currentSingerName = singer;
         fetch('/api/songs-by-singer?singer=' + encodeURIComponent(singer)).then(function(r){return r.json();}).then(function(songs){
             var html = '<div class="singer-back" onclick="selectSingerLetter(\'' + currentSingerLetter + '\')">&#8592; 返回歌手列表</div>';
-            html += '<div style="padding:8px;color:#0af;font-size:15px;text-align:center">' + singer + ' (' + songs.length + '首)</div>';
+            html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + singer + ' (' + songs.length + '首)</div>';
             html += '<div class="singer-songs">';
             for (var i = 0; i < songs.length; i++) {
                 var s = songs[i];
@@ -1352,7 +1529,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     function loadLanguageSongs(lang) {
         fetch('/api/songs-by-language?language=' + encodeURIComponent(lang)).then(function(r){return r.json();}).then(function(songs){
             var html = '<div class="singer-back" onclick="renderLanguageList(languageData)">&#8592; 返回语种列表</div>';
-            html += '<div style="padding:8px;color:#0af;font-size:15px;text-align:center">' + lang + ' (' + songs.length + '首)</div>';
+            html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + lang + ' (' + songs.length + '首)</div>';
             html += '<div class="singer-songs">';
             for (var i = 0; i < songs.length; i++) {
                 var s = songs[i];
@@ -1389,7 +1566,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     function loadCategorySongs(cat) {
         fetch('/api/songs-by-category?category=' + encodeURIComponent(cat)).then(function(r){return r.json();}).then(function(songs){
             var html = '<div class="singer-back" onclick="renderCategoryList(categoryData)">&#8592; 返回曲种列表</div>';
-            html += '<div style="padding:8px;color:#0af;font-size:15px;text-align:center">' + cat + ' (' + songs.length + '首)</div>';
+            html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + cat + ' (' + songs.length + '首)</div>';
             html += '<div class="singer-songs">';
             for (var i = 0; i < songs.length; i++) {
                 var s = songs[i];

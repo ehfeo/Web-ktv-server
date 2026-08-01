@@ -174,6 +174,9 @@ func startServer() error {
 		http.HandleFunc("/api/songs-by-category", SongsByCategoryHandler)
 		http.HandleFunc("/api/selfcheck", SelfCheckHandler)
 		http.HandleFunc("/api/check-tracks", CheckTracksHandler)
+		http.HandleFunc("/api/hot-songs", HotSongsHandler)
+		http.HandleFunc("/api/play-count", PlayCountHandler)
+		http.HandleFunc("/api/increment-play", IncrementPlayHandler)
 
 	server = &http.Server{
 		Addr: ":" + port,
@@ -214,6 +217,7 @@ func stopServer() error {
 
 func main() {
 	loadConfig()
+	LoadHotPlayData()
 
 	for {
 		showMenu()
@@ -316,6 +320,7 @@ func main() {
 			if serverRunning {
 				stopServer()
 			}
+			SaveHotPlayData()
 			fmt.Println("退出程序...")
 			return
 		default:

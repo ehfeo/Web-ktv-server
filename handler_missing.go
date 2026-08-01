@@ -21,23 +21,27 @@ func MissingPageHandler(w http.ResponseWriter, r *http.Request) {
 <meta charset="UTF-8">
 <title>缺歌登记</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei}
-body{background:#0f1020;color:#fff;padding:20px}
-h2{color:#00aaff;margin-bottom:15px;font-size:18px}
+*{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei,sans-serif}
+body{background:#1a252f;color:#ecf0f1;padding:20px;min-height:100vh}
+h2{color:#337ab9;margin-bottom:18px;font-size:22px;letter-spacing:1px;font-weight:600}
 .input-row{display:flex;gap:10px;margin-bottom:20px}
-.input-row input{flex:1;padding:10px 14px;background:#181a35;border:none;border-radius:6px;color:#fff;font-size:14px;outline:none}
-.input-row input::placeholder{color:#888}
-.input-row input:focus{border:1px solid #00aaff}
-.input-row button{padding:10px 24px;background:#00aaff;border:none;border-radius:6px;color:#fff;font-size:14px;cursor:pointer;white-space:nowrap}
-.input-row button:hover{background:#0088cc}
-.list-title{color:#888;font-size:13px;margin-bottom:8px}
-.song-list{max-height:380px;overflow-y:auto}
-.song-item{padding:8px 12px;background:#181a35;margin-bottom:4px;border-radius:4px;display:flex;justify-content:space-between;align-items:center;font-size:14px}
-.song-time{color:#666;font-size:12px}
-.empty-hint{text-align:center;color:#555;padding:30px;font-size:14px}
-.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#00aaff;color:#fff;padding:10px 24px;border-radius:6px;font-size:14px;opacity:0;transition:opacity 0.3s;pointer-events:none;z-index:100}
-.toast.show{opacity:1}
-.toast.error{background:#ff4444}
+.input-row input{flex:1;padding:11px 16px;background:#2c3e50;border:1px solid #34495e;border-radius:6px;color:#ecf0f1;font-size:15px;outline:none;transition:border-color 0.2s}
+.input-row input::placeholder{color:#95a5a6}
+.input-row input:focus{border-color:#337ab9}
+.input-row button{padding:11px 28px;background:#428bca;border:none;border-radius:6px;color:#fff;font-size:15px;font-weight:bold;cursor:pointer;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.2);transition:background 0.15s}
+.input-row button:hover{background:#3071a9}
+.input-row button:active{background:#286090;box-shadow:0 1px 1px rgba(0,0,0,0.2)}
+.list-title{color:#95a5a6;font-size:14px;margin-bottom:10px}
+.song-list{max-height:380px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#34495e #1a252f}
+.song-list::-webkit-scrollbar{width:6px}
+.song-list::-webkit-scrollbar-track{background:#1a252f}
+.song-list::-webkit-scrollbar-thumb{background:#34495e;border-radius:3px}
+.song-item{padding:10px 14px;background:#2c3e50;margin-bottom:7px;border-radius:6px;display:flex;justify-content:space-between;align-items:center;font-size:14px;border-left:3px solid #337ab9;box-shadow:0 1px 3px rgba(0,0,0,0.15)}
+.song-time{color:#95a5a6;font-size:12px}
+.empty-hint{text-align:center;color:#95a5a6;padding:30px;font-size:15px}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#428bca;color:#fff;padding:10px 28px;border-radius:6px;font-size:14px;font-weight:bold;opacity:0;transition:opacity 0.3s,transform 0.3s;pointer-events:none;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.2)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.error{background:#d9534f;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.2)}
 </style>
 </head>
 <body>
