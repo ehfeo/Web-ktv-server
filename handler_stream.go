@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -304,6 +306,7 @@ func StreamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	foundPath := findMediaFile(name)
+	log.Printf("[StreamHandler] file=%s trackIndex=%d quality=%s", filepath.Base(name), trackIndex, quality)
 	if foundPath == "" {
 		http.Error(w, "文件未找到", 404)
 		return

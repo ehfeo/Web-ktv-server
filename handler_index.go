@@ -147,6 +147,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div id="statusBadge" style="position:fixed;bottom:8px;right:8px;background:rgba(26,37,47,0.9);color:#ecf0f1;padding:6px 14px;border-radius:4px;font-size:12px;z-index:9999;display:none;max-width:400px;pointer-events:none;border:1px solid rgba(255,255,255,0.08)"></div>
 <div class="nav-page" id="navPage">
     <div class="nav-content">
         <div class="nav-title">欢迎使用 KTV 双屏点歌机</div>
@@ -172,6 +173,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                     <input type="checkbox" id="streamMode" onchange="onStreamModeChange()">
                     <span class="toggle-slider"></span>
                     省流
+                </label>
+                <label class="toggle-switch" title="音乐模式：视频文件只播放音频，省流且听歌更专注">
+                    <input type="checkbox" id="musicMode" onchange="onMusicModeChange()">
+                    <span class="toggle-slider"></span>
+                    音乐
                 </label>
             </div>
         </div>
@@ -328,10 +334,26 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    function isMusicMode() {
+        return document.getElementById('musicMode').checked;
+    }
+
+    function onMusicModeChange() {
+        // 音乐模式切换时，如果当前正在播放，重新播放当前曲目
+        if (currentPlayingIndex >= 0 && currentPlayingIndex < queue.length) {
+            playQueueItem(currentPlayingIndex);
+        }
+    }
+
     function isAudioFile(fileName) {
-        var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.wma'];
+        var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.wma', '.ape'];
         var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
         return audioExtensions.indexOf(ext) !== -1;
+    }
+
+    function needsAudioTranscode(fileName) {
+        var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
+        return ext === '.ape' || ext === '.wma';
     }
 
     function showPopupBlockedWarning() {
@@ -351,7 +373,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
     function openPlayer() {
         if(!playerWin || playerWin.closed){
-            playerWin = window.open('/player', 'ktvPlayer', 'width=1280,height=720,menubar=no,toolbar=no,status=no');
+            playerWin = window.open('/player', 'ktvPlayer', 'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no');
             if(!playerWin || playerWin.closed){
                 showPopupBlockedWarning();
             }
@@ -360,7 +382,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
     function openAudioPlayer() {
         if(!audioPlayerWin || audioPlayerWin.closed){
-            audioPlayerWin = window.open('/audio-player', 'ktvAudioPlayer', 'width=800,height=600,menubar=no,toolbar=no,status=no');
+            audioPlayerWin = window.open('/audio-player', 'ktvAudioPlayer', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no');
             if(!audioPlayerWin || audioPlayerWin.closed){
                 showPopupBlockedWarning();
             }
@@ -370,14 +392,14 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     var settingsWin = null;
     function openSettings() {
         if(!settingsWin || settingsWin.closed){
-            settingsWin = window.open('/settings', 'ktvSettings', 'width=600,height=500,menubar=no,toolbar=no,status=no');
+            settingsWin = window.open('/settings', 'ktvSettings', 'width=600,height=500,menubar=no,toolbar=no,location=no,status=no');
         }
     }
 
     var uploadWin = null;
     function openUpload() {
         if(!uploadWin || uploadWin.closed){
-            uploadWin = window.open('/upload', 'ktvUpload', 'width=700,height=550,menubar=no,toolbar=no,status=no');
+            uploadWin = window.open('/upload', 'ktvUpload', 'width=700,height=550,menubar=no,toolbar=no,location=no,status=no');
             if(!uploadWin || uploadWin.closed){
                 showPopupBlockedWarning();
             }
@@ -387,7 +409,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     var missingWin = null;
     function openMissing() {
         if(!missingWin || missingWin.closed){
-            missingWin = window.open('/missing', 'ktvMissing', 'width=500,height=550,menubar=no,toolbar=no,status=no');
+            missingWin = window.open('/missing', 'ktvMissing', 'width=500,height=550,menubar=no,toolbar=no,location=no,status=no');
         }
     }
 
@@ -443,7 +465,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function ensurePlayer(isAudio) {
-        if(isAudio){
+        // 音乐模式下，视频文件也用音频播放器
+        if(isAudio || isMusicMode()){
             if(!audioPlayerWin || audioPlayerWin.closed){
                 openAudioPlayer();
                 return false;
@@ -460,7 +483,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
     function getActivePlayerWin(item) {
         var isAudio = isAudioFile(item.name);
-        return isAudio ? audioPlayerWin : playerWin;
+        return (isAudio || isMusicMode()) ? audioPlayerWin : playerWin;
     }
 
     function switchTrack(trackIndex){
@@ -476,6 +499,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
         // 省流模式下，切换音轨需要重新播放（play消息已带新trackIndex，不再发switchTrack）
         if(isStreamMode() && currentPlayingIndex >= 0 && currentPlayingIndex < queue.length){
+            playQueueItem(currentPlayingIndex);
+            return;
+        }
+        // 音乐模式下，切换音轨需要重新播放（重新抽取音轨）
+        if(isMusicMode() && currentPlayingIndex >= 0 && currentPlayingIndex < queue.length){
             playQueueItem(currentPlayingIndex);
             return;
         }
@@ -506,6 +534,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 return;
             }
         }
+        var songName = (displayName||name).replace(/\.[^.]+$/, '');
+        showStatus('📋 加入队列: ' + songName);
         var queueItem = {path:path,name:name,type:type,displayName:displayName||'',status:"checking",transcodeProgress:0,requestKey:path};
         if(insertNext && currentPlayingIndex >= 0 && currentPlayingIndex < queue.length - 1){
             queue.splice(currentPlayingIndex + 1, 0, queueItem);
@@ -540,6 +570,22 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             return;
         }
 
+        // 音乐模式下，视频文件抽取音频流播放，无需预转码
+        if(isMusicMode() && !isAudioFile(item.name)){
+            item.status = "ready";
+            renderQueue();
+            setTimeout(tryAutoPlay, 600);
+            return;
+        }
+
+        // 需要音频转码的文件（ape/wma等），实时转码，无需预转码
+        if(isAudioFile(item.name) && needsAudioTranscode(item.name)){
+            item.status = "ready";
+            renderQueue();
+            setTimeout(tryAutoPlay, 600);
+            return;
+        }
+
         var xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/transcode/check-and-add', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
@@ -553,8 +599,10 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                         if(data.codecInfo){
                             item.codecInfo = data.codecInfo;
                         }
+                        showStatus('🔄 转码中: ' + (item.displayName||item.name).replace(/\.[^.]+$/, '') + (data.codecInfo ? ' (' + data.codecInfo + ')' : ''));
                     } else {
                         item.status = "ready";
+                        showStatus('✅ 就绪: ' + (item.displayName||item.name).replace(/\.[^.]+$/, ''), 3000);
                     }
                     renderQueue();
 
@@ -586,6 +634,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         for(var i = 0; i < queue.length; i++){
             if(queue[i].status === "ready"){
                 currentPlayingIndex = i;
+                renderQueue();
+                showStatus('▶ 播放: ' + (queue[i].displayName||queue[i].name).replace(/\.[^.]+$/, ''), 3000);
                 playQueueItem(i);
                 return;
             }
@@ -693,12 +743,19 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             checkAndWarnTracks(item.name, item.path, idx);
         }
 
-        var win = isAudio ? audioPlayerWin : playerWin;
+        var win = (isAudio || isMusicMode()) ? audioPlayerWin : playerWin;
 
         // 构建播放URL
         var url;
         if(isAudio){
-            url = '/file?name='+encodeURIComponent(item.path);
+            if(needsAudioTranscode(item.name)){
+                url = '/api/music-mode-stream?name='+encodeURIComponent(item.path)+'&trackIndex=0&_t='+Date.now();
+            } else {
+                url = '/file?name='+encodeURIComponent(item.path);
+            }
+        } else if(isMusicMode()){
+            // 音乐模式：视频文件抽取音频流
+            url = '/api/music-mode-stream?name='+encodeURIComponent(item.path)+'&trackIndex='+lastTrackIndex+'&_t='+Date.now();
         } else if(isStreamMode()){
             // 省流模式：使用流媒体实时转码
             url = '/api/stream?name='+encodeURIComponent(item.path)+'&trackIndex='+lastTrackIndex+'&quality=high&_t='+Date.now();
@@ -709,14 +766,15 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if(!win || win.closed){
             ensurePlayer(isAudio);
             setTimeout(function(){
-                var w = isAudio ? audioPlayerWin : playerWin;
+                var w = (isAudio || isMusicMode()) ? audioPlayerWin : playerWin;
                 if(w && !w.closed){
-                    w.postMessage({action:"play",url:url,type:item.type,name:item.name},'*');
+                    w.postMessage({action:"play",url:url,type:item.type,name:item.name,path:item.path},'*');
                 }
             }, 500);
             return;
         }
-        win.postMessage({action:"play",url:url,type:item.type,name:item.name},'*');
+        win.postMessage({action:"play",url:url,type:item.type,name:item.name,path:item.path},'*');
+        renderQueue();
     }
 
     // 检查文件轨道完整性，有异常时在播放列表中显著提示
@@ -778,6 +836,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
         if(nextIdx >= 0){
             currentPlayingIndex = nextIdx;
+            showStatus('⏭ 切歌: ' + (queue[nextIdx].displayName||queue[nextIdx].name).replace(/\.[^.]+$/, ''), 3000);
             playQueueItem(nextIdx);
         }
 
@@ -1276,16 +1335,53 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             case 'firefox':
             case 'safari':
                 container.style.display = 'block';
-                container.innerHTML = '<span class="nav-status-warn">&#9888;</span> 当前浏览器的音轨切换功能可能受限，建议使用 Chrome 或 Edge 以获得最佳体验。';
+                container.innerHTML = '<div style="padding:16px;border:2px solid #f0ad4e;border-radius:8px;background:rgba(240,173,78,0.1)">' +
+                    '<div style="font-size:16px;font-weight:bold;color:#f0ad4e;margin-bottom:8px">&#9888; 重要提示：音轨切换功能</div>' +
+                    '<div style="margin-bottom:8px">当前浏览器(' + browser + ')的音轨切换功能可能受限，建议使用 <strong>Chrome</strong> 或 <strong>Edge</strong> 以获得最佳体验。</div>' +
+                    '</div>';
                 return;
             default: return;
         }
         container.style.display = 'block';
-        var html = '<strong style="color:#f0ad4e">音轨切换提示：</strong>当前浏览器未启用音轨切换实验功能。<br>';
-        html += '请复制下方地址到浏览器地址栏，开启 <code>Experimental Web Platform features</code> 后刷新页面。<br>';
-        html += '<input type="text" id="settingsUrlInput" value="' + escHtml(settingsUrl) + '" readonly>';
-        html += '<button onclick="copySettingsUrl()">复制地址</button>';
+        var html = '<div style="padding:16px;border:2px solid #f0ad4e;border-radius:8px;background:rgba(240,173,78,0.1)">';
+        html += '<div style="font-size:16px;font-weight:bold;color:#f0ad4e;margin-bottom:8px">&#9888; 重要提示：音轨切换功能</div>';
+        html += '<div style="margin-bottom:8px">当前浏览器未启用音轨切换实验功能，<strong>原唱/伴奏切换将无法使用</strong>。</div>';
+        html += '<div style="margin-bottom:8px"><strong>开启步骤：</strong><br>';
+        html += '1. 复制下方地址，粘贴到浏览器地址栏并回车<br>';
+        html += '2. 找到 <code>Experimental Web Platform features</code>，设为 <strong>Enabled</strong><br>';
+        html += '3. 点击页面底部"Relaunch"重启浏览器</div>';
+        html += '<div style="display:flex;gap:8px;align-items:center;margin-top:8px">';
+        html += '<input type="text" id="settingsUrlInput" value="' + escHtml(settingsUrl) + '" readonly style="flex:1;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px">';
+        html += '<button onclick="copySettingsUrl()" style="padding:6px 16px;border:1px solid #2a6496;border-radius:4px;background:#428bca;color:#fff;cursor:pointer;font-size:13px">复制地址</button>';
+        html += '</div>';
+        html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;cursor:pointer;font-size:14px">';
+        html += '<input type="checkbox" id="trackNoticeConfirm" onchange="onTrackNoticeConfirm()" style="width:18px;height:18px">';
+        html += '<span>我已阅读上述提示并了解如何开启音轨切换功能</span>';
+        html += '</label>';
+        html += '</div>';
         container.innerHTML = html;
+        // 禁用进入按钮，直到用户确认
+        var btn = document.getElementById('navSkipBtn');
+        btn.disabled = true;
+        btn.style.opacity = '0.4';
+        btn.style.cursor = 'not-allowed';
+        btn.textContent = '请先确认上方提示';
+    }
+
+    function onTrackNoticeConfirm() {
+        var checkbox = document.getElementById('trackNoticeConfirm');
+        var btn = document.getElementById('navSkipBtn');
+        if (checkbox && checkbox.checked) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.textContent = '进入点歌系统';
+        } else {
+            btn.disabled = true;
+            btn.style.opacity = '0.4';
+            btn.style.cursor = 'not-allowed';
+            btn.textContent = '请先确认上方提示';
+        }
     }
 
     function copySettingsUrl() {
@@ -1308,6 +1404,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function skipNavPage() {
+        var btn = document.getElementById('navSkipBtn');
+        if (btn && btn.disabled) return; // 禁用时不允许进入
         var navPage = document.getElementById('navPage');
         var mainPage = document.getElementById('mainPage');
         navPage.classList.remove('active');
@@ -1355,6 +1453,24 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         el.textContent = msg;
         el.className = 'toast show';
         setTimeout(function() { el.className = 'toast'; }, 2000);
+    }
+
+    // 状态标签：显示前后端操作进度
+    var statusBadgeTimer = null;
+    function showStatus(msg, duration) {
+        var el = document.getElementById('statusBadge');
+        if (!el) return;
+        el.textContent = msg;
+        el.style.display = 'block';
+        if (statusBadgeTimer) clearTimeout(statusBadgeTimer);
+        if (duration) {
+            statusBadgeTimer = setTimeout(function() { el.style.display = 'none'; }, duration);
+        }
+    }
+    function hideStatus() {
+        var el = document.getElementById('statusBadge');
+        if (el) el.style.display = 'none';
+        if (statusBadgeTimer) clearTimeout(statusBadgeTimer);
     }
 
     // 歌手/语种/曲种浏览

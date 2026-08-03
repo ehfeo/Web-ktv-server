@@ -239,6 +239,7 @@ var audio = document.getElementById('audioPlayer');
 var lyrics = [];
 var currentLyricIndex = 0;
 var currentFileName = '';
+var currentFilePath = '';
 var currentQueue = [];
 var currentPlayingIndex = -1;
 var hasLyrics = false;
@@ -259,6 +260,8 @@ var spectrumSettings = {
   colorTop1: [255,0,0], colorPct20: [255,255,0], colorPct40: [0,100,255],
   thresholdPct20: 10, thresholdPct40: 30
 };
+var dynamicTopDb = 0; // 动态上限，初始=默认topDb
+var defaultTopDb = 0;  // 默认上限（从spectrumSettings.topDb初始化）
 var spectrumPeakData = [];
 var spectrumPeakTimes = [];
 var PEAK_HOLD_TIME_MS = 300;
@@ -336,6 +339,9 @@ function initAudioAnalyser() {
   audioSource = audioCtx.createMediaElementSource(audio);
   audioSource.connect(analyser);
   analyser.connect(audioCtx.destination);
+  // 初始化动态范围上限
+  defaultTopDb = spectrumSettings.topDb;
+  dynamicTopDb = defaultTopDb;
 }
 
 function userSetView(view) {
@@ -374,6 +380,11 @@ function setView(view) {
   ['selCurveStyle','selCurveStyleFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=isSpectrumCurve?'':'none';});
   ['selTheme','selThemeFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=view==='lyrics'?'':'none';});
   ['selTransition','selTransitionFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=view==='lyrics'?'':'none';});
+
+  // 切换到波形视图时重置帧时间，避免dt过大导致推入大量重复数据
+  if (view === 'waveform') {
+    lastWaveformFrameTime = 0;
+  }
 
   if (isVisual && analyser) { drawFrame(); }
   else { stopAnim(); }
@@ -606,13 +617,13 @@ function drawSpectrum(ctx, w, h) {
   var minFreq = 50, maxFreq = 15000;
   var numBars = spectrumSettings.barCount;
   var barW = w / numBars;
-  var topDb = spectrumSettings.topDb, bottomDb = spectrumSettings.bottomDb;
-  var dbRange = topDb - bottomDb;
+  var bottomDb = spectrumSettings.bottomDb;
 
   // 使用缓存的bin范围
   var ranges = buildBinRanges(numBars, minFreq, maxFreq, binRes);
 
-  // 计算每个频谱条的高度（使用预分配的Float64Array）
+  // 先扫描一遍计算ampDb并找到最大值
+  var maxAmpDb = -Infinity;
   for (var i = 0; i < numBars; i++) {
     var range = (i === 0) ? {start:0, end:ranges[0].end} : ranges[i];
     var totalPow = 0, validBins = 0;
@@ -622,11 +633,25 @@ function drawSpectrum(ctx, w, h) {
     }
     if (validBins > 0 && totalPow > 0) {
       var ampDb = 10 * Math.log10(totalPow);
-      barHeightsBuf[i] = (Math.max(bottomDb, Math.min(topDb, ampDb))-bottomDb)/dbRange;
       barAmpDbBuf[i] = ampDb;
+      if (ampDb > maxAmpDb) maxAmpDb = ampDb;
+    } else {
+      barAmpDbBuf[i] = -Infinity;
+    }
+  }
+
+  // 动态范围扩展：如果最大值超过当前上限，扩展上限
+  if (maxAmpDb > dynamicTopDb) {
+    dynamicTopDb = maxAmpDb + 3; // 留3dB余量
+  }
+
+  // 用动态topDb计算barHeightsBuf
+  var dbRange = dynamicTopDb - bottomDb;
+  for (var i = 0; i < numBars; i++) {
+    if (barAmpDbBuf[i] > -Infinity) {
+      barHeightsBuf[i] = (Math.max(bottomDb, Math.min(dynamicTopDb, barAmpDbBuf[i]))-bottomDb)/dbRange;
     } else {
       barHeightsBuf[i] = 0;
-      barAmpDbBuf[i] = -Infinity;
     }
   }
 
@@ -680,7 +705,7 @@ function drawSpectrum(ctx, w, h) {
         }
       }
       if (spectrumPeakData[i]!==undefined && spectrumPeakData[i]>bottomDb) {
-        var pDb = Math.max(bottomDb, Math.min(topDb, spectrumPeakData[i]));
+        var pDb = Math.max(bottomDb, Math.min(dynamicTopDb, spectrumPeakData[i]));
         var pY = drawH - ((pDb-bottomDb)/dbRange)*drawH;
         if (pY < drawH-3) {
           var alpha = (now-spectrumPeakTimes[i])<PEAK_HOLD_TIME_MS ? 1 : 0.5;
@@ -868,7 +893,7 @@ function loadLyrics(songName) {
   if (!userSelectedView) {
     setView('waveform');
   }
-  var lrcUrl = songName.replace(/\.[^.]+$/, '.lrc');
+  var lrcUrl = (currentFilePath || songName).replace(/\.[^.]+$/, '.lrc');
   var xhr = new XMLHttpRequest();
   xhr.open('GET', '/file?name=' + encodeURIComponent(lrcUrl), true);
   xhr.responseType = 'arraybuffer';
@@ -995,7 +1020,7 @@ function updateLyrics() {
 function formatTime(s) { if(isNaN(s))return '0:00'; var m=Math.floor(s/60),sec=Math.floor(s%60); return m+':'+(sec<10?'0':'')+sec; }
 
 function seekAudio(event) {
-  if (!audio || isNaN(audio.duration)) return;
+  if (!audio || !isFinite(audio.duration) || audio.duration <= 0) return;
   var bar = document.getElementById('progressBar');
   var rect = bar.getBoundingClientRect();
   audio.currentTime = ((event.clientX - rect.left) / rect.width) * audio.duration;
@@ -1003,10 +1028,13 @@ function seekAudio(event) {
 
 function setVolume(v) { if(audio) audio.volume = v/100; }
 
-function playAudio(url, name) {
+function playAudio(url, name, path) {
   currentFileName = name;
+  currentFilePath = path || '';
   document.getElementById('songTitle').textContent = name;
   if (!audioCtx) initAudioAnalyser();
+  // 切歌时恢复默认动态上限
+  dynamicTopDb = defaultTopDb;
   audio.src = url + '?t=' + Date.now();
   audio.volume = document.getElementById('volumeSlider').value / 100;
   audio.play().catch(function(){});
@@ -1015,10 +1043,14 @@ function playAudio(url, name) {
   document.getElementById('toolbar').style.display = 'flex';
 
   audio.ontimeupdate = function() {
-    if (isNaN(audio.duration)) return;
-    document.getElementById('progressFill').style.width = (audio.currentTime/audio.duration*100)+'%';
+    document.getElementById('progressFill').style.width = '0%';
     document.getElementById('currentTime').textContent = formatTime(audio.currentTime);
-    document.getElementById('totalTime').textContent = formatTime(audio.duration);
+    if (isFinite(audio.duration) && audio.duration > 0) {
+      document.getElementById('progressFill').style.width = (audio.currentTime/audio.duration*100)+'%';
+      document.getElementById('totalTime').textContent = formatTime(audio.duration);
+    } else {
+      document.getElementById('totalTime').textContent = '直播流';
+    }
     updateLyrics();
   };
   audio.onended = function() { stopAnim(); if(window.opener&&!window.opener.closed) window.opener.postMessage({action:"ended"},"*"); };
@@ -1043,7 +1075,7 @@ function updateNextSongDisplay() {
 }
 
 window.addEventListener("message", function(e) {
-  if (e.data.action === "play") playAudio(e.data.url, e.data.name);
+  if (e.data.action === "play") playAudio(e.data.url, e.data.name, e.data.path);
   else if (e.data.action === "syncQueue") { currentQueue=e.data.list; currentPlayingIndex=e.data.currentPlayingIndex!==undefined?e.data.currentPlayingIndex:-1; updateNextSongDisplay(); }
 });
 

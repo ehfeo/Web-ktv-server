@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-var allowedExtensions = []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma", ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".rm", ".rmvb", ".ts", ".webm", ".mpg", ".mpeg", ".flv"}
+var allowedExtensions = []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma", ".ape", ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".rm", ".rmvb", ".ts", ".webm", ".mpg", ".mpeg", ".flv"}
 
 func UploadPageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -84,7 +84,7 @@ var filesToUpload = [];
 var uploading = false;
 var currentUploadIdx = -1;
 
-var allowedExts = ['.mp3','.wav','.flac','.aac','.m4a','.ogg','.wma','.mp4','.mkv','.avi','.mov','.wmv','.rm','.rmvb','.ts','.webm','.mpg','.mpeg','.flv'];
+var allowedExts = ['.mp3','.wav','.flac','.aac','.m4a','.ogg','.wma','.ape','.mp4','.mkv','.avi','.mov','.wmv','.rm','.rmvb','.ts','.webm','.mpg','.mpeg','.flv'];
 
 function isAllowedFile(name) {
   var dotIdx = name.lastIndexOf('.');

@@ -195,7 +195,7 @@ var lastVolume = 1;
 
 function isAudioFile(fileName) {
     var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
-    return ['.mp3','.wav','.flac','.aac','.m4a','.ogg','.wma'].indexOf(ext) !== -1;
+    return ['.mp3','.wav','.flac','.aac','.m4a','.ogg','.wma','.ape'].indexOf(ext) !== -1;
 }
 
 // 标签切换

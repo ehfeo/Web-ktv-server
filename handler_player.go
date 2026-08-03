@@ -84,6 +84,7 @@ var retryTimer = null;
 var lyrics = [];
 var currentLyricIndex = 0;
 var currentFileName = '';
+var currentFilePath = '';
 var currentQueue = [];
 var currentPlayingIndex = -1;
 var audioCtx = null;
@@ -93,6 +94,7 @@ var merger = null;
 var channelMode = 'stereo';
 var lastTrackIndex = 0;
 var lastVolume = 1;
+var mediaAudioTrackCount = -1; // 从CheckTracks获取的音轨数，-1=未知
 var isStreamMode = false; // 是否为流媒体模式（省流模式）
 
 function showTip(text) {
@@ -163,7 +165,7 @@ function loadLyrics(songName) {
   currentLyricIndex = 0;
   document.getElementById("lyrics").innerHTML = '';
 
-  var lrcUrl = songName.replace(/\.[^.]+$/, '.lrc');
+  var lrcUrl = (currentFilePath || songName).replace(/\.[^.]+$/, '.lrc');
   var xhr = new XMLHttpRequest();
   xhr.open('GET', '/file?name=' + encodeURIComponent(lrcUrl), true);
   xhr.responseType = 'arraybuffer';
@@ -344,6 +346,36 @@ function switchTrack(targetIdx) {
     return;
   }
 
+  // 音轨切换失败，分析原因并提示
+  // 1. 先判断浏览器是否支持 audioTracks API（实验功能是否开启）
+  if (!video.audioTracks) {
+    clearTimeout(retryTimer);
+    var reason = '无法切换原唱/伴奏：当前浏览器不支持音轨切换功能。\n\n';
+    if (mediaAudioTrackCount === 0) {
+      reason += '注意：该歌曲本身也没有音频轨道（源文件问题）。\n\n';
+    } else if (mediaAudioTrackCount === 1) {
+      reason += '注意：该歌曲仅有1条音频轨道，即使开启实验功能也无法切换（源文件问题）。\n\n';
+    }
+    reason += '可能原因：\n';
+    reason += '1. 未开启 Experimental Web Platform features 实验功能\n';
+    reason += '2. 浏览器版本过旧不支持 AudioTracks API\n\n';
+    reason += '解决方法：\n请在浏览器地址栏打开 chrome://flags/#enable-experimental-web-platform-features 并设为 Enabled，然后重启浏览器。';
+    alert(reason);
+    return;
+  }
+
+  // 2. 浏览器支持API，检查文件本身音轨数
+  if (mediaAudioTrackCount === 0) {
+    alert('该歌曲没有音频轨道，无法切换原唱/伴奏。\n\n这是源文件本身的问题，不是系统故障。');
+    clearTimeout(retryTimer);
+    return;
+  }
+  if (mediaAudioTrackCount === 1) {
+    alert('该歌曲仅有1条音频轨道，无法切换原唱/伴奏。\n\n原唱/伴奏切换需要歌曲包含2条及以上音频轨道。\n这是源文件本身的问题，不是系统故障。');
+    clearTimeout(retryTimer);
+    return;
+  }
+
   if (audioCtx && splitter && merger) {
     if (targetIdx === 0) {
       setupChannelRouting('left');
@@ -363,7 +395,10 @@ function switchTrack(targetIdx) {
   showTip("⏳ 音轨未加载，自动重试中...");
 
   clearTimeout(retryTimer);
+  var retryCount = 0;
+  var maxRetries = 25; // 5秒
   retryTimer = setInterval(function() {
+    retryCount++;
     if (doSwitchTrack(targetIdx)) {
       clearTimeout(retryTimer);
       return;
@@ -380,12 +415,22 @@ function switchTrack(targetIdx) {
       document.getElementById("btnOrigin").classList.toggle("active", targetIdx === 0);
       document.getElementById("btnAcc").classList.toggle("active", targetIdx === 1);
       clearTimeout(retryTimer);
+      return;
+    }
+
+    if (retryCount >= maxRetries) {
+      clearTimeout(retryTimer);
+      var reason = '音轨信息加载超时。\n\n';
+      reason += '浏览器已支持音轨切换功能，但音轨信息迟迟未加载。\n';
+      reason += '可能原因：视频文件的音频编码不被浏览器支持。\n\n';
+      reason += '建议：点击下方"一键申请后台转码"按钮，将文件转为浏览器兼容的编码格式。';
+      alert(reason);
     }
   }, 200);
 }
 
 function isAudioFile(fileName) {
-  var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.wma'];
+  var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.wma', '.ape'];
   var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
   return audioExtensions.indexOf(ext) !== -1;
 }
@@ -399,8 +444,12 @@ function onVideoMetadataLoaded() {
   if (metadataCheckTimer) clearTimeout(metadataCheckTimer);
   metadataCheckTimer = setTimeout(function() {
     if (video.audioTracks && video.audioTracks.length === 0) {
-      alert('警告：当前媒体文件没有音频轨道或音频编码不被支持，可能无法正常播放声音');
-      document.getElementById('btnTranscode').style.display = 'block';
+      if (mediaAudioTrackCount === 0) {
+        alert('警告：该歌曲没有音频轨道，无法正常播放声音。\n\n这是源文件本身的问题，不是系统故障。');
+      } else {
+        alert('警告：该歌曲有' + mediaAudioTrackCount + '条音频轨道，但音频编码不被浏览器支持，可能无法正常播放声音。\n\n建议：点击下方"一键申请后台转码"按钮转换编码。');
+        document.getElementById('btnTranscode').style.display = 'block';
+      }
     }
 
     if (video.videoWidth === 0 && video.videoHeight === 0) {
@@ -410,7 +459,7 @@ function onVideoMetadataLoaded() {
   }, 1000);
 }
 
-function playVideo(url, name, type) {
+function playVideo(url, name, type, path) {
   clearTimeout(retryTimer);
   switchingSong = true;
   trackList = [];
@@ -433,13 +482,17 @@ function playVideo(url, name, type) {
   document.getElementById('btnTranscode').style.display = 'none';
 
   currentFileName = name;
+  currentFilePath = path || '';
   var isAudio = isAudioFile(name);
 
   // 检查文件轨道完整性（非音频文件）
   if (!isAudio) {
-    fetch('/api/check-tracks?name=' + encodeURIComponent(name))
+    var checkName = currentFilePath || name;
+    if (!checkName) return;
+    fetch('/api/check-tracks?name=' + encodeURIComponent(checkName))
       .then(function(r){ return r.json(); })
       .then(function(data){
+        mediaAudioTrackCount = data.audioTrackCount || 0;
         if(data && data.message){
           showTrackWarning(data);
         } else {
@@ -614,7 +667,7 @@ function updateNextSongDisplay() {
 window.addEventListener("message", function(e) {
   var data = e.data;
   if (data.action === "play") {
-    playVideo(data.url, data.name, data.type);
+    playVideo(data.url, data.name, data.type, data.path);
   } else if (data.action === "switchTrack") {
     switchTrack(data.index);
   } else if (data.action === "syncQueue") {
@@ -631,7 +684,10 @@ function showTrackWarning(data) {
     var icon = '';
     if (data.noVideo) icon += '🎬无画面 ';
     if (data.noAudio) icon += '🔊无声音 ';
+    if (!data.noAudio && data.audioTrackCount === 1) icon += '🎵仅单音轨 ';
     text.textContent = icon + ' ' + data.message;
+    // 单音轨用橙色警告，无音轨/无视频用红色
+    bar.style.background = (data.noAudio || data.noVideo) ? '#d9534f' : '#f0ad4e';
     bar.style.display = 'block';
   }
 }

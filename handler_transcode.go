@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -87,6 +88,7 @@ func init() {
 	globalTranscodeQueue.isRunning = false
 	globalTranscodeQueue.processIdx = -1
 	mediaInfoCache.cache = make(map[string]*mediaInfoCacheEntry)
+	findMediaFileCache.cache = make(map[string]string)
 }
 
 func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +112,7 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 		req.RequestKey = req.FileName
 	}
 
+	log.Printf("[CheckAndAddTranscode] 开始检查: file=%s", filepath.Base(req.FileName))
 	foundPath := findMediaFile(req.FileName)
 	if foundPath == "" {
 		http.Error(w, "文件未找到", 404)
@@ -121,7 +124,7 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 	videoCodecUpper := strings.ToUpper(videoCodec)
 
 	ext := strings.ToLower(filepath.Ext(foundPath))
-	audioExtensions := []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma"}
+	audioExtensions := []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma", ".ape"}
 	isAudioFile := false
 	for _, ae := range audioExtensions {
 		if ext == ae {
@@ -443,6 +446,7 @@ func CheckTracksHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("[CheckTracks] 开始检查轨道: file=%s", filepath.Base(name))
 	foundPath := findMediaFile(name)
 	if foundPath == "" {
 		http.Error(w, "文件未找到", 404)
@@ -451,31 +455,87 @@ func CheckTracksHandler(w http.ResponseWriter, r *http.Request) {
 
 	warning := checkMediaTracks(foundPath)
 	w.Header().Set("Content-Type", "application/json")
-	if warning != nil {
-		json.NewEncoder(w).Encode(warning)
-	} else {
-		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
-	}
+	// 始终返回结构体，确保 audioTrackCount 字段正确传给前端
+	// （warning.Message 为空表示文件正常，前端据此决定是否显示警告条）
+	json.NewEncoder(w).Encode(warning)
 }
 
-func findFile(baseDir, fileName string) string {
-	var foundPath string
-	filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() && info.Name() == fileName {
-			foundPath = path
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return foundPath
+var findMediaFileCache struct {
+	sync.RWMutex
+	cache map[string]string
 }
 
 func findMediaFile(name string) string {
+	// 空name直接返回，避免无效Walk
+	if name == "" {
+		return ""
+	}
+
+	// 非媒体文件（如.lrc歌词）静默返回空，不输出WARN/ERROR日志
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext != "" && !isMediaExtension(ext) {
+		return ""
+	}
+
+	// 1. 优先从内存曲库映射表查找（O(1)）
+	if absPath, ok := lookupAbsPath(name); ok {
+		if _, err := os.Stat(absPath); err == nil {
+			return absPath
+		}
+		log.Printf("[findMediaFile] 内存映射命中但文件不存在: name=%s absPath=%s", name, absPath)
+	}
+
+	// 2. 查findMediaFileCache
+	findMediaFileCache.RLock()
+	if p, ok := findMediaFileCache.cache[name]; ok {
+		findMediaFileCache.RUnlock()
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		log.Printf("[findMediaFile] 缓存命中但文件不存在: name=%s path=%s", name, p)
+	} else {
+		findMediaFileCache.RUnlock()
+	}
+
+	// 3. 裸文件名查找（无目录前缀时，通过basename反向映射查找）
+	if !strings.Contains(name, "/") {
+		if absPath, ok := lookupAbsPathByBasename(name); ok {
+			return absPath
+		}
+	}
+
+	// 4. fallback到原始查找逻辑（可能触发Walk磁盘扫描）
+	log.Printf("[findMediaFile][WARN] 内存映射、缓存、basename均未命中，触发fallback查找: name=%s", name)
+	result := findMediaFileUncached(name)
+	if result != "" {
+		findMediaFileCache.Lock()
+		findMediaFileCache.cache[name] = result
+		if len(findMediaFileCache.cache) > 5000 {
+			findMediaFileCache.cache = make(map[string]string)
+		}
+		findMediaFileCache.Unlock()
+	} else {
+		log.Printf("[findMediaFile][ERROR] fallback也未找到文件: name=%s", name)
+	}
+	return result
+}
+
+func findMediaFileUncached(name string) string {
+	if name == "" {
+		return ""
+	}
 	var foundPath string
 	var fileNameOnly string = name
+
+	// 非媒体文件（如.lrc歌词）不执行Walk扫描
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext != "" && !isMediaExtension(ext) {
+		return ""
+	}
+	// 空扩展名也不执行Walk（可能是异常请求）
+	if ext == "" {
+		return ""
+	}
 
 	parts := strings.SplitN(name, "/", 2)
 	if len(parts) == 2 {
@@ -483,37 +543,49 @@ func findMediaFile(name string) string {
 		remainingPath := parts[1]
 		fileNameOnly = filepath.Base(remainingPath)
 
+		// 第一轮：先对所有匹配的目录做os.Stat直接查找（O(1)，不Walk）
+		var matchedDirs []string
 		for _, dir := range mediaDirs {
 			if filepath.Base(dir) == dirPrefix {
+				matchedDirs = append(matchedDirs, dir)
 				fullPath := filepath.Join(dir, remainingPath)
 				if _, err := os.Stat(fullPath); err == nil {
 					return fullPath
 				}
-
-				err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-					if err != nil {
-						return nil
-					}
-					if !info.IsDir() && info.Name() == fileNameOnly {
-						foundPath = path
-						return filepath.SkipAll
-					}
-					return nil
-				})
-
-				if err == nil && foundPath != "" {
-					return foundPath
-				}
 			}
 		}
+
+		// 第二轮：所有os.Stat都失败，才Walk（最后手段）
+		for _, dir := range matchedDirs {
+			log.Printf("[findMediaFileUncached][DISK-SCAN] Walk扫描目录: dir=%s target=%s", dir, fileNameOnly)
+			err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				if !info.IsDir() && info.Name() == fileNameOnly {
+					foundPath = path
+					return filepath.SkipAll
+				}
+				return nil
+			})
+
+			if err == nil && foundPath != "" {
+			return foundPath
+		}
+	}
 	}
 
+	// 第一轮：先对所有目录做os.Stat直接查找
 	for _, dir := range mediaDirs {
 		fullPath := filepath.Join(dir, name)
 		if _, err := os.Stat(fullPath); err == nil {
 			return fullPath
 		}
+	}
 
+	// 第二轮：所有os.Stat都失败，才Walk（最后手段）
+	for _, dir := range mediaDirs {
+		log.Printf("[findMediaFileUncached][DISK-SCAN] Walk扫描目录(无前缀): dir=%s target=%s", dir, fileNameOnly)
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return nil
@@ -531,6 +603,17 @@ func findMediaFile(name string) string {
 	}
 
 	return ""
+}
+
+// isMediaExtension 判断是否为媒体文件扩展名
+func isMediaExtension(ext string) bool {
+	switch ext {
+	case ".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma", ".ape",
+		".mp4", ".mkv", ".avi", ".mov", ".wmv", ".rm", ".rmvb", ".ts", ".webm",
+		".mpg", ".mpeg", ".flv":
+		return true
+	}
+	return false
 }
 
 func runTranscode(filePath string, requestKey string) {
@@ -693,6 +776,34 @@ func runTranscode(filePath string, requestKey string) {
 	transcodeProgress.progress = 100
 	transcodeProgress.outputPath = outputRelPath
 	transcodeProgress.Unlock()
+
+	// 将转码产出文件路径加入内存映射表，删除原文件路径（原文件已被删除）
+	// 注意：必须先删除旧路径，再添加新路径，避免 outputRelPath == requestKey 时自删
+	newBasename := filepath.Base(finalPath)
+	oldBasename := filepath.Base(requestKey)
+	pathToAbsFile.Lock()
+	basenameToAbsFile.Lock()
+	// 1. 先删除旧路径
+	delete(pathToAbsFile.m, requestKey)
+	if oldPaths, ok := basenameToAbsFile.m[oldBasename]; ok {
+		newPaths := make([]string, 0, len(oldPaths))
+		for _, p := range oldPaths {
+			if p != filePath {
+				newPaths = append(newPaths, p)
+			}
+		}
+		if len(newPaths) > 0 {
+			basenameToAbsFile.m[oldBasename] = newPaths
+		} else {
+			delete(basenameToAbsFile.m, oldBasename)
+		}
+	}
+	// 2. 再添加新路径
+	pathToAbsFile.m[outputRelPath] = finalPath
+	basenameToAbsFile.m[newBasename] = append(basenameToAbsFile.m[newBasename], finalPath)
+	basenameToAbsFile.Unlock()
+	pathToAbsFile.Unlock()
+	log.Printf("[转码] 路径映射已更新: %s -> %s (移除旧路径: %s)", outputRelPath, filepath.Base(finalPath), requestKey)
 
 	fmt.Printf("[转码完成] %s -> %s\n", filepath.Base(filePath), filepath.Base(finalPath))
 
@@ -984,6 +1095,8 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 		mediaInfoCache.RUnlock()
 	}
 
+	log.Printf("[getMediaInfo] 缓存未命中，调用ffprobe: file=%s", filepath.Base(filePath))
+	startTime := time.Now()
 	ffprobePath := getFFprobePath()
 
 	videoCodecCmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filePath)
@@ -1092,14 +1205,18 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 		mediaInfoCache.Unlock()
 	}
 
+	log.Printf("[getMediaInfo] ffprobe完成: file=%s 耗时=%dms vCodec=%s aCodec=%s",
+		filepath.Base(filePath), time.Since(startTime).Milliseconds(), videoCodec, audioCodecStr)
+
 	return
 }
 
 // MediaTrackWarning 媒体轨道问题警告
 type MediaTrackWarning struct {
-	NoVideo bool   `json:"noVideo"` // 视频文件无视频轨
-	NoAudio bool   `json:"noAudio"` // 无音频轨
-	Message string `json:"message"` // 人类可读的警告信息
+	NoVideo        bool   `json:"noVideo"`        // 视频文件无视频轨
+	NoAudio        bool   `json:"noAudio"`        // 无音频轨
+	AudioTrackCount int   `json:"audioTrackCount"` // 音频轨道数
+	Message        string `json:"message"`        // 人类可读的警告信息
 }
 
 // checkMediaTracks 检查文件是否缺少视频轨或音频轨
@@ -1124,13 +1241,18 @@ func checkMediaTracks(filePath string) *MediaTrackWarning {
 
 	// 检查音频轨
 	hasAudio := false
+	audioTrackCount := 0
 	cmd = exec.Command(ffprobePath, "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", filePath)
 	if out, err := cmd.CombinedOutput(); err == nil {
-		hasAudio = strings.TrimSpace(string(out)) != ""
+		lines := strings.TrimSpace(string(out))
+		if lines != "" {
+			hasAudio = true
+			audioTrackCount = len(strings.Split(lines, "\n"))
+		}
 	}
 
 	var warnings []string
-	w := &MediaTrackWarning{}
+	w := &MediaTrackWarning{AudioTrackCount: audioTrackCount}
 
 	if isVideoContainer && !hasVideo {
 		w.NoVideo = true
@@ -1140,13 +1262,17 @@ func checkMediaTracks(filePath string) *MediaTrackWarning {
 		w.NoAudio = true
 		warnings = append(warnings, "无音频轨（该文件没有声音）")
 	}
+	if isVideoContainer && hasAudio && audioTrackCount == 1 {
+		warnings = append(warnings, "仅有1条音轨（无法切换原唱/伴奏）")
+	}
 
 	if len(warnings) > 0 {
 		w.Message = "曲库文件异常: " + strings.Join(warnings, "，") + "。这不是系统问题，是源文件本身的问题。"
 		fmt.Printf("[警告] %s: %s\n", filepath.Base(filePath), w.Message)
 		return w
 	}
-	return nil
+	// 文件正常时也返回结构体，确保 audioTrackCount 字段正确传给前端
+	return w
 }
 
 func isVideoCodecSupported(codec string) bool {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -74,6 +75,7 @@ func getMediaListWithProgress(callback ScanProgressCallback) []MediaFile {
 		"m4a":  true,
 		"ogg":  true,
 		"wma":  true,
+		"ape":  true,
 	}
 
 	// 先统计所有媒体目录中支持格式的文件总数
@@ -184,6 +186,18 @@ var (
 	cachedLowerPinyins    []string    // 与 cachedMergedMediaList 对应的小写拼音首字母，加速搜索
 )
 
+// pathToAbsFile 媒体路径到绝对文件路径的映射（从内存曲库构建，O(1)查找）
+var pathToAbsFile struct {
+	sync.RWMutex
+	m map[string]string
+}
+
+// basenameToAbsFile 文件名到绝对路径的反向映射（裸文件名查找，避免Walk）
+var basenameToAbsFile struct {
+	sync.RWMutex
+	m map[string][]string // 一个文件名可能对应多个路径
+}
+
 // scanDir 扫描单个目录中的媒体文件
 func scanDir(dir string) []MediaFile {
 	var list []MediaFile
@@ -192,7 +206,7 @@ func scanDir(dir string) []MediaFile {
 		"mp3": true, "flac": true, "wav": true, "mp4": true, "webm": true,
 		"mkv": true, "mpg": true, "mpeg": true, "avi": true, "mov": true,
 		"wmv": true, "rm": true, "rmvb": true, "ts": true, "flv": true,
-		"aac": true, "m4a": true, "ogg": true, "wma": true,
+		"aac": true, "m4a": true, "ogg": true, "wma": true, "ape": true,
 	}
 
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -276,6 +290,9 @@ func rebuildMergedCache() {
 		cachedLowerNames[i] = strings.ToLower(item.Name)
 		cachedLowerPinyins[i] = strings.ToLower(item.PinyinInit)
 	}
+
+	// 重建路径→绝对路径映射表，供 findMediaFile O(1) 查找
+	buildPathToAbsFileMap()
 }
 
 // getCachedMediaList 返回去重后的完整缓存
@@ -284,6 +301,51 @@ func getCachedMediaList() []MediaFile {
 		rebuildMergedCache()
 	}
 	return cachedMergedMediaList
+}
+
+// buildPathToAbsFileMap 从内存曲库构建路径映射表
+func buildPathToAbsFileMap() {
+	list := getCachedMediaList()
+	pathToAbsFile.Lock()
+	basenameToAbsFile.Lock()
+	pathToAbsFile.m = make(map[string]string, len(list))
+	basenameToAbsFile.m = make(map[string][]string, len(list))
+	for _, f := range list {
+		// Path格式: "dirBase/relPath"，绝对路径 = filepath.Join(Dir, relPath)
+		relPath := strings.TrimPrefix(f.Path, filepath.Base(f.Dir)+"/")
+		absPath := filepath.Join(f.Dir, relPath)
+		pathToAbsFile.m[f.Path] = absPath
+		// 同时构建basename反向映射
+		basename := f.Name
+		basenameToAbsFile.m[basename] = append(basenameToAbsFile.m[basename], absPath)
+	}
+	basenameToAbsFile.Unlock()
+	pathToAbsFile.Unlock()
+}
+
+// lookupAbsPath 从内存映射表查找绝对路径
+func lookupAbsPath(mediaPath string) (string, bool) {
+	pathToAbsFile.RLock()
+	p, ok := pathToAbsFile.m[mediaPath]
+	pathToAbsFile.RUnlock()
+	return p, ok
+}
+
+// lookupAbsPathByBasename 通过裸文件名查找绝对路径
+func lookupAbsPathByBasename(filename string) (string, bool) {
+	basenameToAbsFile.RLock()
+	paths, ok := basenameToAbsFile.m[filename]
+	basenameToAbsFile.RUnlock()
+	if !ok || len(paths) == 0 {
+		return "", false
+	}
+	// 返回第一个存在的文件
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // rescanUploadDir 仅重新扫描上传目录

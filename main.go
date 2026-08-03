@@ -177,6 +177,7 @@ func startServer() error {
 		http.HandleFunc("/api/hot-songs", HotSongsHandler)
 		http.HandleFunc("/api/play-count", PlayCountHandler)
 		http.HandleFunc("/api/increment-play", IncrementPlayHandler)
+	http.HandleFunc("/api/music-mode-stream", MusicModeStreamHandler)
 
 	server = &http.Server{
 		Addr: ":" + port,
