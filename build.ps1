@@ -1,4 +1,4 @@
-# build.ps1 — KTV 双屏点歌机一键构建脚本
+﻿# build.ps1 — KTV 双屏点歌机一键构建脚本
 # 使用 Go 1.20.14 编译，原生支持 Windows 7 SP1+
 #
 # 用法: .\build.ps1
