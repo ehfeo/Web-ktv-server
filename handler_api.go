@@ -271,9 +271,12 @@ func SingerIndexHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// 每个字母内按歌手名排序
+	// 每个字母内按歌曲数量降序排列（数量相同则按歌手名排序）
 	for letter := range letterMap {
 		sort.Slice(letterMap[letter], func(i, j int) bool {
+			if letterMap[letter][i].Count != letterMap[letter][j].Count {
+				return letterMap[letter][i].Count > letterMap[letter][j].Count
+			}
 			return letterMap[letter][i].Name < letterMap[letter][j].Name
 		})
 	}

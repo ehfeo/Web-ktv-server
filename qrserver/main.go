@@ -74,6 +74,7 @@ type KTVMessage struct {
 	RequestID           string          `json:"requestId,omitempty"`
 	Songs               json.RawMessage `json:"songs,omitempty"`
 	Results             json.RawMessage `json:"results,omitempty"`
+	Data                json.RawMessage `json:"data,omitempty"`
 	Queue               json.RawMessage `json:"queue,omitempty"`
 	CurrentPlayingIndex int             `json:"currentPlayingIndex,omitempty"`
 	Valid               bool            `json:"valid,omitempty"`
@@ -94,6 +95,9 @@ type KTVOutMessage struct {
 	Password  string `json:"password,omitempty"`
 	Page      int    `json:"page,omitempty"`
 	PageSize  int    `json:"pageSize,omitempty"`
+	Singer    string `json:"singer,omitempty"`
+	Language  string `json:"language,omitempty"`
+	Category  string `json:"category,omitempty"`
 }
 
 // Mobile → QR Server 消息
@@ -106,6 +110,9 @@ type MobileMessage struct {
 	Password string `json:"password,omitempty"`
 	Page     int    `json:"page,omitempty"`
 	PageSize int    `json:"pageSize,omitempty"`
+	Singer   string `json:"singer,omitempty"`
+	Language string `json:"language,omitempty"`
+	Category string `json:"category,omitempty"`
 }
 
 // QR Server → Mobile 消息
@@ -119,6 +126,8 @@ type MobileOutMessage struct {
 	Total               int             `json:"total,omitempty"`
 	Page                int             `json:"page,omitempty"`
 	PageSize            int             `json:"pageSize,omitempty"`
+	Data                json.RawMessage `json:"data,omitempty"`
+	RequestID           string          `json:"requestId,omitempty"`
 }
 
 // ==================== 会话管理 ====================
@@ -339,6 +348,25 @@ func (s *Server) handleKTV(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+		case "browseResult":
+			// 通用浏览结果转发到对应的移动端
+			mobileConn := s.consumePendingSearch(km.RequestID)
+			if mobileConn != nil {
+				outMsg := MobileOutMessage{
+					Type:      "browseResult",
+					RequestID: km.RequestID,
+					Data:      km.Data,
+					Songs:     km.Results,
+					Total:     km.Total,
+					Page:      km.Page,
+					PageSize:  km.PageSize,
+				}
+				data, _ := json.Marshal(outMsg)
+				if err := mobileConn.WriteMessage(websocket.TextMessage, data); err != nil {
+					log.Printf("转发浏览结果到移动端失败: %v", err)
+				}
+			}
+
 		default:
 			log.Printf("KTV未知消息类型: %s", km.Type)
 		}
@@ -395,7 +423,7 @@ func (s *Server) handleMobile(w http.ResponseWriter, r *http.Request) {
 	ktvConn := sess.ktvConn
 	sess.mu.Unlock()
 	if ktvConn != nil {
-		reqMsg := KTVOutMessage{Type: "requestQueue"}
+		reqMsg := KTVOutMessage{Type: "requestQueue", SessionID: sessionID}
 		data, _ := json.Marshal(reqMsg)
 		if err := ktvConn.WriteMessage(websocket.TextMessage, data); err != nil {
 			log.Printf("请求KTV队列失败: %v", err)
@@ -486,6 +514,35 @@ func (s *Server) handleMobile(w http.ResponseWriter, r *http.Request) {
 			data, _ := json.Marshal(outMsg)
 			if err := ktvConn.WriteMessage(websocket.TextMessage, data); err != nil {
 				log.Printf("转发点歌请求到KTV失败: %v", err)
+				sendMobileError(conn, "KTV服务连接异常")
+			}
+
+		case "browse":
+			if hasPassword && !isAuthed {
+				sendMobileError(conn, "请先输入密码")
+				continue
+			}
+			if ktvConn == nil {
+				sendMobileError(conn, "KTV服务未连接")
+				continue
+			}
+			requestID := generateRequestID()
+			s.registerPendingSearch(requestID, conn)
+			outMsg := KTVOutMessage{
+				Type:      "browse",
+				RequestID: requestID,
+				SessionID: sessionID,
+				Keyword:   mm.Keyword,
+				Singer:    mm.Singer,
+				Language:  mm.Language,
+				Category:  mm.Category,
+				Page:      mm.Page,
+				PageSize:  mm.PageSize,
+			}
+			data, _ := json.Marshal(outMsg)
+			if err := ktvConn.WriteMessage(websocket.TextMessage, data); err != nil {
+				log.Printf("转发浏览请求到KTV失败: %v", err)
+				s.consumePendingSearch(requestID)
 				sendMobileError(conn, "KTV服务连接异常")
 			}
 

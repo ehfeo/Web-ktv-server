@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +68,10 @@ type qrMessage struct {
 	Total               int             `json:"total,omitempty"`
 	Queue               json.RawMessage `json:"queue,omitempty"`
 	CurrentPlayingIndex int             `json:"currentPlayingIndex,omitempty"`
+	Singer              string          `json:"singer,omitempty"`
+	Language            string          `json:"language,omitempty"`
+	Category            string          `json:"category,omitempty"`
+	Data                json.RawMessage `json:"data,omitempty"`
 }
 
 type qrSearchItem struct {
@@ -212,7 +217,9 @@ func handleQRMessage(data []byte) {
 	case "queueUpdate":
 		handleQRQueueUpdate(msg)
 	case "requestQueue":
-		handleQRRequestQueue()
+		handleQRRequestQueue(msg)
+	case "browse":
+		handleQRBrowse(msg)
 	default:
 		fmt.Printf("[QR客户端] 未知消息类型: %s\n", msg.Type)
 	}
@@ -320,8 +327,289 @@ func handleQRQueueUpdate(msg qrMessage) {
 }
 
 // handleQRRequestQueue 手机端连接时，QR服务器请求当前队列
-func handleQRRequestQueue() {
-	// 不再全局推送，由前端按sessionId推送
+func handleQRRequestQueue(msg qrMessage) {
+	sid := msg.SessionID
+	if sid == "" {
+		sid = "default"
+	}
+	qrQueueMutex.Lock()
+	cachedQueue := qrQueueData[sid]
+	cachedIndex := qrQueueIndex[sid]
+	qrQueueMutex.Unlock()
+
+	if cachedQueue == nil {
+		return
+	}
+
+	resp := qrMessage{
+		Type:                "queueUpdate",
+		SessionID:           sid,
+		Queue:               cachedQueue,
+		CurrentPlayingIndex: cachedIndex,
+	}
+	if err := qrWriteJSON(resp); err != nil {
+		fmt.Printf("[QR客户端] 发送队列数据失败: %v\n", err)
+	}
+}
+
+// handleQRBrowse 处理手机端浏览请求（歌手/语种/曲种/热播）
+func handleQRBrowse(msg qrMessage) {
+	page := msg.Page
+	if page < 1 {
+		page = 1
+	}
+	pageSize := msg.PageSize
+	if pageSize < 1 {
+		pageSize = 20
+	}
+
+	browseType := msg.Keyword
+	list := getCachedMediaList()
+
+	switch browseType {
+	case "singerIndex":
+		// 歌手列表（按首字母分组，组内按歌曲数降序）
+		singerCount := make(map[string]int)
+		for _, item := range list {
+			if item.Singer != "" && item.Singer != "未知歌手" {
+				singerCount[item.Singer]++
+			}
+		}
+		letterMap := make(map[string][]map[string]interface{})
+		for singer, count := range singerCount {
+			letter := singerFirstChar(singer)
+			letterMap[letter] = append(letterMap[letter], map[string]interface{}{
+				"name":  singer,
+				"count": count,
+			})
+		}
+		for letter := range letterMap {
+			sort.Slice(letterMap[letter], func(i, j int) bool {
+				ci, _ := letterMap[letter][i]["count"].(int)
+				cj, _ := letterMap[letter][j]["count"].(int)
+				if ci != cj {
+					return ci > cj
+				}
+				ni, _ := letterMap[letter][i]["name"].(string)
+				nj, _ := letterMap[letter][j]["name"].(string)
+				return ni < nj
+			})
+		}
+		data, _ := json.Marshal(letterMap)
+		resp := qrMessage{
+			Type:      "browseResult",
+			RequestID: msg.RequestID,
+			Data:      data,
+		}
+		qrWriteJSON(resp)
+
+	case "singerSongs":
+		// 某歌手的歌曲列表（分页）
+		var songs []qrSearchItem
+		for _, item := range list {
+			if item.Singer == msg.Singer {
+				songs = append(songs, qrSearchItem{
+					Name:   item.Name,
+					Path:   item.Path,
+					Type:   item.Type,
+					Singer: item.Singer,
+				})
+			}
+		}
+		total := len(songs)
+		start := (page - 1) * pageSize
+		if start > total {
+			start = total
+		}
+		end := start + pageSize
+		if end > total {
+			end = total
+		}
+		paged := songs[start:end]
+		resp := qrMessage{
+			Type:      "browseResult",
+			RequestID: msg.RequestID,
+			Results:   paged,
+			Total:     total,
+			Page:      page,
+			PageSize:  pageSize,
+		}
+		qrWriteJSON(resp)
+
+	case "languageIndex":
+		// 语种列表（按歌曲数降序）
+		langCount := make(map[string]int)
+		for _, item := range list {
+			lang := item.Language
+			if lang == "" {
+				lang = "未知"
+			}
+			langCount[lang]++
+		}
+		var result []map[string]interface{}
+		for lang, count := range langCount {
+			result = append(result, map[string]interface{}{
+				"name":  lang,
+				"count": count,
+			})
+		}
+		sort.Slice(result, func(i, j int) bool {
+			ci, _ := result[i]["count"].(int)
+			cj, _ := result[j]["count"].(int)
+			return ci > cj
+		})
+		data, _ := json.Marshal(result)
+		resp := qrMessage{
+			Type:      "browseResult",
+			RequestID: msg.RequestID,
+			Data:      data,
+		}
+		qrWriteJSON(resp)
+
+	case "languageSongs":
+		// 某语种的歌曲列表（分页）
+		var songs []qrSearchItem
+		for _, item := range list {
+			lang := item.Language
+			if lang == "" {
+				lang = "未知"
+			}
+			if lang == msg.Language {
+				songs = append(songs, qrSearchItem{
+					Name:   item.Name,
+					Path:   item.Path,
+					Type:   item.Type,
+					Singer: item.Singer,
+				})
+			}
+		}
+		total := len(songs)
+		start := (page - 1) * pageSize
+		if start > total {
+			start = total
+		}
+		end := start + pageSize
+		if end > total {
+			end = total
+		}
+		paged := songs[start:end]
+		resp := qrMessage{
+			Type:      "browseResult",
+			RequestID: msg.RequestID,
+			Results:   paged,
+			Total:     total,
+			Page:      page,
+			PageSize:  pageSize,
+		}
+		qrWriteJSON(resp)
+
+	case "categoryIndex":
+		// 曲种列表（按歌曲数降序）
+		catCount := make(map[string]int)
+		for _, item := range list {
+			cat := item.Category
+			if cat == "" {
+				cat = "未知"
+			}
+			catCount[cat]++
+		}
+		var result []map[string]interface{}
+		for cat, count := range catCount {
+			result = append(result, map[string]interface{}{
+				"name":  cat,
+				"count": count,
+			})
+		}
+		sort.Slice(result, func(i, j int) bool {
+			ci, _ := result[i]["count"].(int)
+			cj, _ := result[j]["count"].(int)
+			return ci > cj
+		})
+		data, _ := json.Marshal(result)
+		resp := qrMessage{
+			Type:      "browseResult",
+			RequestID: msg.RequestID,
+			Data:      data,
+		}
+		qrWriteJSON(resp)
+
+	case "categorySongs":
+		// 某曲种的歌曲列表（分页）
+		var songs []qrSearchItem
+		for _, item := range list {
+			cat := item.Category
+			if cat == "" {
+				cat = "未知"
+			}
+			if cat == msg.Category {
+				songs = append(songs, qrSearchItem{
+					Name:   item.Name,
+					Path:   item.Path,
+					Type:   item.Type,
+					Singer: item.Singer,
+				})
+			}
+		}
+		total := len(songs)
+		start := (page - 1) * pageSize
+		if start > total {
+			start = total
+		}
+		end := start + pageSize
+		if end > total {
+			end = total
+		}
+		paged := songs[start:end]
+		resp := qrMessage{
+			Type:      "browseResult",
+			RequestID: msg.RequestID,
+			Results:   paged,
+			Total:     total,
+			Page:      page,
+			PageSize:  pageSize,
+		}
+		qrWriteJSON(resp)
+
+	case "hotSongs":
+		// 热播歌曲（分页）
+		hotList := GetHotSongs(100)
+		total := len(hotList)
+		start := (page - 1) * pageSize
+		if start > total {
+			start = total
+		}
+		end := start + pageSize
+		if end > total {
+			end = total
+		}
+		paged := hotList[start:end]
+		var results []qrSearchItem
+		for _, h := range paged {
+			// 从媒体列表中查找类型
+			songType := "video"
+			for _, m := range list {
+				if m.Path == h.Path {
+					songType = m.Type
+					break
+				}
+			}
+			results = append(results, qrSearchItem{
+				Name:   h.Name,
+				Path:   h.Path,
+				Type:   songType,
+				Singer: fmt.Sprintf("%d次播放", h.Count),
+			})
+		}
+		resp := qrMessage{
+			Type:      "browseResult",
+			RequestID: msg.RequestID,
+			Results:   results,
+			Total:     total,
+			Page:      page,
+			PageSize:  pageSize,
+		}
+		qrWriteJSON(resp)
+	}
 }
 
 // qrWriteJSON 线程安全地发送JSON消息
