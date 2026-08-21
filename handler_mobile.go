@@ -559,11 +559,33 @@ function checkAndRequestTranscode(idx) {
         return;
     }
 
+    // 启动磁盘休眠状态轮询：如果后端检测到磁盘休眠，显示提示
+    if (window._diskSleepTimer) clearInterval(window._diskSleepTimer);
+    window._diskSleepTimer = setInterval(function(){
+        var sxhr = new XMLHttpRequest();
+        sxhr.open('GET', '/api/disk-status', true);
+        sxhr.onload = function(){
+            if (sxhr.status === 200) {
+                try {
+                    var sdata = JSON.parse(sxhr.responseText);
+                    if (sdata.waking) {
+                        showToast('💤 硬盘已休眠，正在等待唤醒... (' + (sdata.elapsed||0) + 'ms)', 'info');
+                    }
+                } catch(e) {}
+            }
+        };
+        sxhr.send();
+    }, 500);
+    function stopDiskSleepPolling(){
+        if (window._diskSleepTimer) { clearInterval(window._diskSleepTimer); window._diskSleepTimer = null; }
+    }
+
     // 音频文件保持原有转码检查逻辑
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/transcode/check-and-add', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onload = function() {
+        stopDiskSleepPolling();
         if (xhr.status === 200) {
             try {
                 var data = JSON.parse(xhr.responseText);
@@ -585,6 +607,7 @@ function checkAndRequestTranscode(idx) {
             }
         }
     };
+    xhr.onerror = function(){ stopDiskSleepPolling(); };
     xhr.send(JSON.stringify({fileName: item.path, requestKey: item.requestKey}));
 }
 

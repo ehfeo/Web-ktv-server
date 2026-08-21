@@ -40,14 +40,6 @@
 - NVIDIA/AMD/Intel GPU 自动检测
 - 32 位和 64 位双版本，兼容 Win7 SP1 ~ Win11
 
-## 配套工具
-
-- [ktv-accompaniment-tool](https://github.com/ehfeo/ktv-accompaniment-tool)：基于 UVR-MDX-NET-Inst_HQ_3 模型的本地伴奏分离便携工具。
-  - 从歌曲（音频/视频）提取**伴奏（inst）**与**人声（voc）**
-  - 给没有伴奏音轨的视频**添加伴奏音轨**或**替换原音轨**
-  - 纯本地 CPU 推理、网页操作、无需安装依赖
-  - 适合为 KTV 曲库批量准备"原唱/伴奏"双音轨视频
-
 ## 截图
 
 <table>

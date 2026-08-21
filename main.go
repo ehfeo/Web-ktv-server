@@ -160,6 +160,7 @@ func startServer() error {
 		http.HandleFunc("/api/transcode/progress", TranscodeProgressHandler)
 		http.HandleFunc("/api/transcode/status", TranscodeStatusHandler)
 		http.HandleFunc("/api/transcode/check-and-add", CheckAndAddTranscodeHandler)
+		http.HandleFunc("/api/disk-status", DiskSleepStatusHandler)
 		http.HandleFunc("/api/track-switch", TrackSwitchHandler)
 		http.HandleFunc("/api/check-transcode", CheckTranscodeHandler)
 		http.HandleFunc("/api/stream", StreamHandler)

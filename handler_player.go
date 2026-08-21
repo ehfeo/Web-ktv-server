@@ -19,8 +19,9 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .lyrics{width:100%;height:100%;text-align:center;color:#fff;font-size:26px;line-height:1.9;text-shadow:0 1px 2px rgba(0,0,0,0.5);overflow-y:auto;display:flex;flex-direction:column;align-items:center;pointer-events:auto;box-sizing:border-box;padding:20px 30px 20px 20px}
 .lyrics-line{margin:10px 0;opacity:0.55;transition:all 0.4s cubic-bezier(.4,0,.2,1)}
 .lyrics-line.active{opacity:1;font-size:32px;font-weight:bold;color:#5bc0de;text-shadow:0 1px 2px rgba(0,0,0,0.5)}
-.ctrl-bar{position:fixed;bottom:40px;left:40px;z-index:999;display:flex;gap:18px;opacity:0;transition:opacity 0.3s ease}
-.track-btn{padding:12px 32px;border:none;border-radius:6px;font-size:18px;font-weight:bold;cursor:pointer;color:#fff;letter-spacing:1px;transition:all 0.2s ease;transform:translateY(0);text-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.ctrl-bar{position:fixed;bottom:40px;left:40px;z-index:999;display:flex;gap:18px;opacity:0;transition:opacity 0.3s ease;background:transparent !important}
+.track-btn{padding:12px 32px;border:none;border-radius:6px;font-size:18px;font-weight:bold;cursor:pointer;color:#fff;letter-spacing:1px;transition:all 0.2s ease;transform:translateY(0);text-shadow:0 1px 2px rgba(0,0,0,0.3);line-height:1.2}
+.track-btn .btn-sub{display:block;font-size:13px;font-weight:normal;opacity:0.9;letter-spacing:0;margin-top:2px;text-shadow:0 1px 1px rgba(0,0,0,0.4)}
 .track-btn.active{background:#5cb85c;box-shadow:0 2px 4px rgba(0,0,0,0.3)}
 .track-btn.active:hover{background:#4cae4c;box-shadow:0 3px 6px rgba(0,0,0,0.35)}
 .track-btn.active:active{background:#449d44;box-shadow:0 1px 2px rgba(0,0,0,0.3)}
@@ -60,10 +61,16 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 <div class="play-info" id="playInfo" style="display:none">
   <div class="current" id="currentSong"></div>
   <div class="next" id="nextSong"></div>
+  <div class="qr-block" id="qrBlock" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1)">
+    <div style="font-size:13px;color:#5bc0de;margin-bottom:6px;text-align:center">手机扫码点歌</div>
+    <img id="qrImage" src="" alt="二维码" width="160" height="160" style="display:block;margin:0 auto;border-radius:4px;background:#fff;padding:4px">
+    <div id="qrNetworkTip" style="font-size:11px;color:#f0ad4e;margin-top:6px;text-align:center;line-height:1.4"></div>
+  </div>
 </div>
 <div class="ctrl-bar">
-  <button class="track-btn active" id="btnOrigin" onclick="switchTrack(0)">原唱</button>
-  <button class="track-btn" id="btnAcc" onclick="switchTrack(1)">伴奏</button>
+  <button class="track-btn active" id="btnT0" onclick="switchTrack(0)">原唱</button>
+  <button class="track-btn" id="btnT1" onclick="switchTrack(1)">伴奏</button>
+  <button class="track-btn" id="btnT2" onclick="switchTrack(2)" style="display:none">右声道</button>
   <button class="transcode-btn" id="btnTranscode" onclick="startTranscode()" style="display:none">一键申请后台转码</button>
 </div>
 <div class="transcode-progress" id="transcodeProgress">
@@ -95,7 +102,10 @@ var channelMode = 'stereo';
 var lastTrackIndex = 0;
 var lastVolume = 1;
 var mediaAudioTrackCount = -1; // 从CheckTracks获取的音轨数，-1=未知
+var mediaAudioChannels = -1;   // 从CheckTracks获取的声道数，-1=未知
+var trackMode = 'track';       // 'track' = 多音轨模式（原唱/伴奏），'channel' = 单音轨立体声模式（立体声/左声道/右声道）
 var isStreamMode = false; // 是否为流媒体模式（省流模式）
+var currentSessionId = ''; // 从主页面同步的会话ID，用于显示点歌二维码
 
 function showTip(text) {
   var tip = document.getElementById("tipBox");
@@ -319,21 +329,101 @@ function doSwitchTrack(targetIdx) {
       track.enabled = (idx === targetIdx);
     });
 
-    document.getElementById("btnOrigin").classList.toggle("active", targetIdx === 0);
-    document.getElementById("btnAcc").classList.toggle("active", targetIdx === 1);
+    updateButtonStates(targetIdx);
     return true;
   }
 
   return false;
 }
 
+// 根据当前 trackMode 更新按钮文字、可见性、active 状态
+function updateTrackButtons() {
+  var btn0 = document.getElementById('btnT0');
+  var btn1 = document.getElementById('btnT1');
+  var btn2 = document.getElementById('btnT2');
+  if (!btn0 || !btn1 || !btn2) return;
+
+  if (mediaAudioTrackCount >= 2) {
+    // 多音轨模式：原唱/伴奏（音轨X）
+    trackMode = 'track';
+    btn0.innerHTML = '原唱<span class="btn-sub">（音轨1）</span>';
+    btn1.innerHTML = '伴奏<span class="btn-sub">（音轨2）</span>';
+    btn2.style.display = 'none';
+    if (lastTrackIndex > 1) lastTrackIndex = 0;
+  } else if (mediaAudioTrackCount === 1 && mediaAudioChannels === 2) {
+    // 单音轨立体声模式：立体声/左声道/右声道
+    trackMode = 'channel';
+    btn0.innerHTML = '立体声';
+    btn1.innerHTML = '左声道';
+    btn2.innerHTML = '右声道';
+    btn2.style.display = 'inline-block';
+    if (lastTrackIndex > 2) lastTrackIndex = 0;
+  } else {
+    // 未知或单声道：默认多音轨模式（仅显示2个按钮，等待canplay再决定是否走声道fallback）
+    trackMode = 'track';
+    btn0.innerHTML = '原唱';
+    btn1.innerHTML = '伴奏';
+    btn2.style.display = 'none';
+    if (lastTrackIndex > 1) lastTrackIndex = 0;
+  }
+
+  updateButtonStates(lastTrackIndex);
+}
+
+function updateButtonStates(activeIdx) {
+  var btn0 = document.getElementById('btnT0');
+  var btn1 = document.getElementById('btnT1');
+  var btn2 = document.getElementById('btnT2');
+  if (btn0) btn0.classList.toggle('active', activeIdx === 0);
+  if (btn1) btn1.classList.toggle('active', activeIdx === 1);
+  if (btn2) btn2.classList.toggle('active', activeIdx === 2);
+}
+
+// 应用声道路由（channel模式），idx: 0=stereo 1=left 2=right
+function applyChannelMode(idx) {
+  if (!audioCtx) initWebAudio();
+  if (!audioCtx || !splitter || !merger) return false;
+  var mode = idx === 0 ? 'stereo' : (idx === 1 ? 'left' : 'right');
+  setupChannelRouting(mode);
+  channelMode = mode;
+  return true;
+}
+
 function switchTrack(targetIdx) {
   lastTrackIndex = targetIdx;
 
+  // 声道模式（单音轨立体声：立体声/左声道/右声道）
+  if (trackMode === 'channel') {
+    if (applyChannelMode(targetIdx)) {
+      updateButtonStates(targetIdx);
+      var tipText = targetIdx === 0 ? '立体声模式' : (targetIdx === 1 ? '左声道模式' : '右声道模式');
+      showTip(tipText);
+      clearTimeout(retryTimer);
+      return;
+    }
+    // WebAudio 未就绪，重试
+    showTip("⏳ 音频系统初始化中...");
+    clearTimeout(retryTimer);
+    var chanRetryCount = 0;
+    retryTimer = setInterval(function() {
+      chanRetryCount++;
+      if (applyChannelMode(targetIdx)) {
+        updateButtonStates(targetIdx);
+        clearTimeout(retryTimer);
+        return;
+      }
+      if (chanRetryCount >= 25) {
+        clearTimeout(retryTimer);
+        alert('音频系统初始化超时，无法切换声道。');
+      }
+    }, 200);
+    return;
+  }
+
+  // 多音轨模式（原唱/伴奏）
   // 流媒体模式：通知主页面重新播放（带新的trackIndex）
   if (isStreamMode) {
-    document.getElementById("btnOrigin").classList.toggle("active", targetIdx === 0);
-    document.getElementById("btnAcc").classList.toggle("active", targetIdx === 1);
+    updateButtonStates(targetIdx);
     showTip(targetIdx === 0 ? "原唱模式" : "伴奏模式");
     if (window.opener && !window.opener.closed) {
       window.opener.postMessage({action: "switchTrack", index: targetIdx}, "*");
@@ -376,22 +466,7 @@ function switchTrack(targetIdx) {
     return;
   }
 
-  if (audioCtx && splitter && merger) {
-    if (targetIdx === 0) {
-      setupChannelRouting('left');
-      channelMode = 'left';
-      showTip("原唱模式：左声道");
-    } else {
-      setupChannelRouting('right');
-      channelMode = 'right';
-      showTip("伴奏模式：右声道");
-    }
-    document.getElementById("btnOrigin").classList.toggle("active", targetIdx === 0);
-    document.getElementById("btnAcc").classList.toggle("active", targetIdx === 1);
-    clearTimeout(retryTimer);
-    return;
-  }
-
+  // 3. 音轨数未知或>=2但尚未加载，重试
   showTip("⏳ 音轨未加载，自动重试中...");
 
   clearTimeout(retryTimer);
@@ -399,21 +474,13 @@ function switchTrack(targetIdx) {
   var maxRetries = 25; // 5秒
   retryTimer = setInterval(function() {
     retryCount++;
-    if (doSwitchTrack(targetIdx)) {
+    // check-tracks返回后可能切到了channel模式，转交channel模式处理
+    if (trackMode === 'channel') {
       clearTimeout(retryTimer);
+      switchTrack(targetIdx > 2 ? 0 : targetIdx);
       return;
     }
-
-    if (audioCtx && splitter && merger) {
-      if (targetIdx === 0) {
-        setupChannelRouting('left');
-        channelMode = 'left';
-      } else {
-        setupChannelRouting('right');
-        channelMode = 'right';
-      }
-      document.getElementById("btnOrigin").classList.toggle("active", targetIdx === 0);
-      document.getElementById("btnAcc").classList.toggle("active", targetIdx === 1);
+    if (doSwitchTrack(targetIdx)) {
       clearTimeout(retryTimer);
       return;
     }
@@ -487,12 +554,17 @@ function playVideo(url, name, type, path) {
 
   // 检查文件轨道完整性（非音频文件）
   if (!isAudio) {
+    // 重置上一首的轨道信息，避免短暂闪烁
+    mediaAudioTrackCount = -1;
+    mediaAudioChannels = -1;
     var checkName = currentFilePath || name;
     if (!checkName) return;
     fetch('/api/check-tracks?name=' + encodeURIComponent(checkName))
       .then(function(r){ return r.json(); })
       .then(function(data){
-        mediaAudioTrackCount = data.audioTrackCount || 0;
+        mediaAudioTrackCount = (data && data.audioTrackCount) ? data.audioTrackCount : 0;
+        mediaAudioChannels = (data && data.audioChannels) ? data.audioChannels : 0;
+        updateTrackButtons();
         if(data && data.message){
           showTrackWarning(data);
         } else {
@@ -532,31 +604,30 @@ function playVideo(url, name, type, path) {
     switchingSong = false;
     setTimeout(function() {
       if (isAudio) return;
-      // 流媒体模式：音轨已在URL中指定，只需更新按钮状态
-      if (isStreamMode) {
-        document.getElementById("btnOrigin").classList.toggle("active", lastTrackIndex === 0);
-        document.getElementById("btnAcc").classList.toggle("active", lastTrackIndex === 1);
+
+      // 根据已获取的音轨/声道信息更新按钮（check-tracks可能已返回）
+      updateTrackButtons();
+
+      // 声道模式：初始化WebAudio并应用当前选择的声道
+      if (trackMode === 'channel') {
+        if (!audioCtx) initWebAudio();
+        if (applyChannelMode(lastTrackIndex)) {
+          updateButtonStates(lastTrackIndex);
+        }
         return;
       }
 
+      // 多音轨模式 + 流媒体：音轨已在URL中指定，只需更新按钮状态
+      if (isStreamMode) {
+        updateButtonStates(lastTrackIndex);
+        return;
+      }
+
+      // 多音轨模式 + 本地播放：尝试切换音轨
       if (doSwitchTrack(lastTrackIndex)) {
         return;
       }
-
-      if (!audioCtx) {
-        initWebAudio();
-      }
-      if (audioCtx && splitter && merger) {
-        if (lastTrackIndex === 0) {
-          setupChannelRouting('left');
-          channelMode = 'left';
-        } else {
-          setupChannelRouting('right');
-          channelMode = 'right';
-        }
-        document.getElementById("btnOrigin").classList.toggle("active", lastTrackIndex === 0);
-        document.getElementById("btnAcc").classList.toggle("active", lastTrackIndex === 1);
-      }
+      // 切换失败时（音轨未加载完成等）保持当前按钮状态，等待用户点击或自动重试
     }, 300);
   });
 
@@ -640,6 +711,7 @@ function playVideo(url, name, type, path) {
   document.getElementById('playInfo').style.display = 'block';
   document.getElementById('currentSong').textContent = '正在播放：' + name;
   updateNextSongDisplay();
+  updatePlayerQR();
 
   setTimeout(function() {
     document.getElementById('playInfo').style.display = 'none';
@@ -664,6 +736,73 @@ function updateNextSongDisplay() {
   }
 }
 
+// isPrivateIP 判断IP是否属于内网地址
+// 支持IPv4及简单IPv6（localhost/::1）
+function isPrivateIP(ip) {
+  if (!ip) return false;
+  ip = ip.toLowerCase().trim();
+  if (ip === 'localhost' || ip === '::1' || ip === '127.0.0.1') return true;
+  // 去除可能存在的IPv6前缀 "::ffff:"
+  ip = ip.replace(/^::ffff:/, '');
+  var parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  var a = parseInt(parts[0], 10), b = parseInt(parts[1], 10);
+  if (isNaN(a) || isNaN(b)) return false;
+  // 10.0.0.0/8
+  if (a === 10) return true;
+  // 172.16.0.0/12
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  // 192.168.0.0/16
+  if (a === 192 && b === 168) return true;
+  // 169.254.0.0/16 (link-local)
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+// extractIP 从 "ip:port" 或 "host:port" 中提取 IP/host
+function extractIP(addr) {
+  if (!addr) return '';
+  // 处理 [ipv6]:port 形式
+  if (addr.charAt(0) === '[') {
+    var idx = addr.indexOf(']');
+    return idx > 0 ? addr.substring(1, idx) : addr;
+  }
+  // 处理 IPv4 host:port
+  var lastColon = addr.lastIndexOf(':');
+  if (lastColon > 0) return addr.substring(0, lastColon);
+  return addr;
+}
+
+// updatePlayerQR 智能显示二维码：服务器可用则显示，内网IP加提示
+function updatePlayerQR() {
+  var qrBlock = document.getElementById('qrBlock');
+  var qrImg = document.getElementById('qrImage');
+  var qrTip = document.getElementById('qrNetworkTip');
+  if (!qrBlock || !qrImg || !qrTip) return;
+  if (!currentSessionId) { qrBlock.style.display = 'none'; return; }
+
+  fetch('/api/qr/status').then(function(r){return r.json();}).then(function(data){
+    if (!data.enabled || !data.connected) {
+      qrBlock.style.display = 'none';
+      return;
+    }
+    var qrUrl = 'http://' + data.qrServerAddr + '/m/' + currentSessionId;
+    var qrImgUrl = '/api/qr/image?url=' + encodeURIComponent(qrUrl);
+    qrImg.src = qrImgUrl;
+    var ip = extractIP(data.qrServerAddr);
+    if (isPrivateIP(ip)) {
+      qrTip.textContent = '手机必须与点歌电脑在同个网络内';
+      qrTip.style.color = '#f0ad4e';
+    } else {
+      qrTip.textContent = '支持外网点歌';
+      qrTip.style.color = '#5cb85c';
+    }
+    qrBlock.style.display = 'block';
+  }).catch(function(){
+    qrBlock.style.display = 'none';
+  });
+}
+
 window.addEventListener("message", function(e) {
   var data = e.data;
   if (data.action === "play") {
@@ -673,6 +812,7 @@ window.addEventListener("message", function(e) {
   } else if (data.action === "syncQueue") {
     currentQueue = data.list;
     currentPlayingIndex = data.currentPlayingIndex !== undefined ? data.currentPlayingIndex : -1;
+    if (data.sessionId) currentSessionId = data.sessionId;
     updateNextSongDisplay();
   }
 });
@@ -703,6 +843,7 @@ function handleTimeUpdate() {
   if (remainingTime <= 10 && remainingTime > 9) {
     document.getElementById('playInfo').style.display = 'block';
     updateNextSongDisplay();
+    updatePlayerQR();
     var nextItem = null;
     // 从队列最前面扫描下一首可播放的歌曲（跳过当前播放的）
     for (var i = 0; i < currentQueue.length; i++) {

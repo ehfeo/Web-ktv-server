@@ -586,10 +586,32 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             return;
         }
 
+        // 启动磁盘休眠状态轮询：如果后端检测到磁盘休眠，显示提示
+        if (window._diskSleepTimer) clearInterval(window._diskSleepTimer);
+        window._diskSleepTimer = setInterval(function(){
+            var sxhr = new XMLHttpRequest();
+            sxhr.open('GET', '/api/disk-status', true);
+            sxhr.onload = function(){
+                if (sxhr.status === 200) {
+                    try {
+                        var sdata = JSON.parse(sxhr.responseText);
+                        if (sdata.waking) {
+                            showStatus('💤 硬盘已休眠，正在等待硬盘唤醒响应... (' + (sdata.elapsed||0) + 'ms)');
+                        }
+                    } catch(e) {}
+                }
+            };
+            sxhr.send();
+        }, 500);
+        function stopDiskSleepPolling(){
+            if (window._diskSleepTimer) { clearInterval(window._diskSleepTimer); window._diskSleepTimer = null; }
+        }
+
         var xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/transcode/check-and-add', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.onload = function() {
+            stopDiskSleepPolling();
             if (xhr.status === 200) {
                 try {
                     var data = JSON.parse(xhr.responseText);
@@ -621,6 +643,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             }
         };
         xhr.onerror = function(){
+            stopDiskSleepPolling();
             item.status = "ready";
             renderQueue();
             tryAutoPlay();
@@ -692,10 +715,10 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
         box.innerHTML = html;
         if(playerWin && !playerWin.closed){
-            playerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex},'*');
+            playerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
         }
         if(audioPlayerWin && !audioPlayerWin.closed){
-            audioPlayerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex},'*');
+            audioPlayerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
         }
         // Send queue update to QR server
         fetch('/api/qr/queue-update', {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -671,10 +672,59 @@ func startServer(port int) {
 
 	addr := fmt.Sprintf(":%d", port)
 	fmt.Printf("\n  QR中继服务器启动，监听端口 %d\n", port)
-	fmt.Printf("  KTV连接地址: ws://localhost:%d/ws/ktv\n", port)
-	fmt.Printf("  移动端连接地址: ws://localhost:%d/ws/mobile\n", port)
+
+	// 获取所有网络适配器的IP地址，方便在主程序设置里填写
+	ips := getLocalIPs()
+	fmt.Println("  可用连接地址：")
+	if len(ips) > 0 {
+		for _, ip := range ips {
+			fmt.Printf("    KTV连接地址:   ws://%s:%d/ws/ktv\n", ip, port)
+			fmt.Printf("    移动端连接地址: ws://%s:%d/ws/mobile\n", ip, port)
+		}
+	}
+	fmt.Printf("    KTV连接地址:   ws://localhost:%d/ws/ktv\n", port)
+	fmt.Printf("    移动端连接地址: ws://localhost:%d/ws/mobile\n", port)
 	fmt.Println()
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("服务器启动失败: %v", err)
 	}
+}
+
+// 获取所有本地IPv4地址（不包括回环地址）
+func getLocalIPs() []string {
+	var ips []string
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // 跳过未启用的接口
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // 跳过回环接口
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // 不是IPv4地址
+			}
+			ips = append(ips, ip.String())
+		}
+	}
+	return ips
 }

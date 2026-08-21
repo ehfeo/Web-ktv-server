@@ -44,3 +44,21 @@ Desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# 敏感文件（包含token/密码，禁止推送）
+user_profile.md
+
+# 运行日志
+*.log
+ktv_stdout.log
+ktv_stderr.log
+
+# 本地QR配置
+qr_config.json
+
+# dist 目录（编译产物 + 本地配置 + 本地缓存）
+dist/
+
+# Trae 记忆
+.trae-cn/
+

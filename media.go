@@ -22,7 +22,7 @@ type MediaFile struct {
 	Language    string `json:"language"`    // 语种（从文件名解析）
 	Category    string `json:"category"`    // 曲种（从文件名解析）
 	Size        int64  `json:"size"`        // 文件大小（字节）
-	PinyinInit  string `json:"-"`           // 预计算的拼音首字母，仅用于搜索
+	PinyinInit  string `json:"pinyinInit"`   // 预计算的拼音首字母，用于拼音搜索
 }
 
 // parseFilenameFields 按规则 歌手-歌名-语种-歌曲类别 解析文件名
@@ -429,9 +429,38 @@ func loadMediaCache() bool {
 	restoreDirField(cachedFixedMediaList)
 	restoreDirField(cachedUploadMediaList)
 
+	// 旧版缓存没有 PinyinInit 字段（原 json tag 是 "-"），
+	// 加载后为空字符串，导致拼音搜索失效。
+	// 检查并补全：扫描列表中第一个文件，若 PinyinInit 为空则认为整个缓存需要补全
+	needsPinyinRebuild := false
+	if len(cachedFixedMediaList) > 0 && cachedFixedMediaList[0].PinyinInit == "" {
+		needsPinyinRebuild = true
+	}
+	if !needsPinyinRebuild && len(cachedUploadMediaList) > 0 && cachedUploadMediaList[0].PinyinInit == "" {
+		needsPinyinRebuild = true
+	}
+	if needsPinyinRebuild {
+		fmt.Printf("[Media] 旧缓存缺少拼音首字母字段，重新计算...\n")
+		recomputePinyinInitials(cachedFixedMediaList)
+		recomputePinyinInitials(cachedUploadMediaList)
+		// 补全后保存一次新格式缓存，下次启动直接命中
+		saveMediaCache()
+		fmt.Printf("[Media] 已重新保存包含拼音字段的缓存\n")
+	}
+
 	rebuildMergedCache()
 	fmt.Printf("[Media] 已从缓存加载曲库 (保存时间: %s, 共 %d 首歌曲)\n", cache.SavedAt, len(cachedMergedMediaList))
 	return true
+}
+
+// recomputePinyinInitials 重新计算列表中每个 MediaFile 的 PinyinInit 字段
+func recomputePinyinInitials(list []MediaFile) {
+	for i := range list {
+		if list[i].PinyinInit == "" {
+			name := strings.TrimSuffix(list[i].Name, filepath.Ext(list[i].Name))
+			list[i].PinyinInit = computePinyinInitials(name)
+		}
+	}
 }
 
 // restoreDirField 从 Path 前缀和 mediaDirs 反推恢复 Dir 字段

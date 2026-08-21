@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -83,11 +84,60 @@ var globalTranscodeQueue struct {
 	processIdx int
 }
 
+// diskSleepStatus 用于在磁盘休眠唤醒期间向前端推送提示状态
+// 当 getMediaInfo 检测到磁盘休眠（预热读取超过 500ms 仍未返回）时设置 waking=true
+// 预热完成后清除 waking
+var diskSleepStatus struct {
+	sync.RWMutex
+	waking  bool      // 是否正在等待磁盘唤醒
+	file    string    // 当前正在等待唤醒的文件
+	since   time.Time // 检测到休眠的时刻
+}
+
+// setDiskSleeping 设置磁盘休眠状态。sleeping=true 表示进入等待唤醒状态。
+func setDiskSleeping(sleeping bool, filePath string) {
+	diskSleepStatus.Lock()
+	defer diskSleepStatus.Unlock()
+	if sleeping {
+		diskSleepStatus.waking = true
+		diskSleepStatus.file = filePath
+		diskSleepStatus.since = time.Now()
+		log.Printf("[磁盘休眠] 检测到磁盘休眠，正在等待唤醒: file=%s", filepath.Base(filePath))
+	} else {
+		if diskSleepStatus.waking {
+			log.Printf("[磁盘休眠] 唤醒完成: file=%s 等待耗时=%dms",
+				filepath.Base(diskSleepStatus.file), time.Since(diskSleepStatus.since).Milliseconds())
+		}
+		diskSleepStatus.waking = false
+		diskSleepStatus.file = ""
+	}
+}
+
+// DiskSleepStatusHandler 返回当前磁盘休眠状态，供前端轮询
+func DiskSleepStatusHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	diskSleepStatus.RLock()
+	defer diskSleepStatus.RUnlock()
+	resp := map[string]interface{}{
+		"waking":  diskSleepStatus.waking,
+		"message": "",
+		"file":    "",
+		"elapsed": 0,
+	}
+	if diskSleepStatus.waking {
+		resp["message"] = "硬盘已休眠，正在等待硬盘唤醒响应..."
+		resp["file"] = filepath.Base(diskSleepStatus.file)
+		resp["elapsed"] = time.Since(diskSleepStatus.since).Milliseconds()
+	}
+	json.NewEncoder(w).Encode(resp)
+}
+
 func init() {
 	globalTranscodeQueue.queue = make([]TranscodeTask, 0)
 	globalTranscodeQueue.isRunning = false
 	globalTranscodeQueue.processIdx = -1
 	mediaInfoCache.cache = make(map[string]*mediaInfoCacheEntry)
+	mediaTracksCache.cache = make(map[string]*mediaTracksCacheEntry)
 	findMediaFileCache.cache = make(map[string]string)
 }
 
@@ -466,6 +516,7 @@ var findMediaFileCache struct {
 }
 
 func findMediaFile(name string) string {
+	findStart := time.Now()
 	// 空name直接返回，避免无效Walk
 	if name == "" {
 		return ""
@@ -478,35 +529,58 @@ func findMediaFile(name string) string {
 	}
 
 	// 1. 优先从内存曲库映射表查找（O(1)）
+	lookupStart := time.Now()
 	if absPath, ok := lookupAbsPath(name); ok {
-		if _, err := os.Stat(absPath); err == nil {
+		lookupMs := time.Since(lookupStart).Milliseconds()
+		statStart := time.Now()
+		_, statErr := os.Stat(absPath)
+		statMs := time.Since(statStart).Milliseconds()
+		if statErr == nil {
+			log.Printf("[findMediaFile] 步骤1 内存映射命中 lookup=%dms stat=%dms 总耗时=%dms name=%s",
+				lookupMs, statMs, time.Since(findStart).Milliseconds(), name)
 			return absPath
 		}
-		log.Printf("[findMediaFile] 内存映射命中但文件不存在: name=%s absPath=%s", name, absPath)
+		log.Printf("[findMediaFile] 内存映射命中但文件不存在: name=%s absPath=%s stat=%dms err=%v", name, absPath, statMs, statErr)
+	} else {
+		log.Printf("[findMediaFile] 步骤1 内存映射未命中 lookup=%dms name=%s", time.Since(lookupStart).Milliseconds(), name)
 	}
 
 	// 2. 查findMediaFileCache
+	cacheStart := time.Now()
 	findMediaFileCache.RLock()
 	if p, ok := findMediaFileCache.cache[name]; ok {
 		findMediaFileCache.RUnlock()
-		if _, err := os.Stat(p); err == nil {
+		statStart := time.Now()
+		_, statErr := os.Stat(p)
+		statMs := time.Since(statStart).Milliseconds()
+		if statErr == nil {
+			log.Printf("[findMediaFile] 步骤2 缓存命中 lookup=%dms stat=%dms 总耗时=%dms name=%s",
+				time.Since(cacheStart).Milliseconds(), statMs, time.Since(findStart).Milliseconds(), name)
 			return p
 		}
-		log.Printf("[findMediaFile] 缓存命中但文件不存在: name=%s path=%s", name, p)
+		log.Printf("[findMediaFile] 缓存命中但文件不存在: name=%s path=%s stat=%dms", name, p, statMs)
 	} else {
 		findMediaFileCache.RUnlock()
+		log.Printf("[findMediaFile] 步骤2 缓存未命中 lookup=%dms name=%s", time.Since(cacheStart).Milliseconds(), name)
 	}
 
 	// 3. 裸文件名查找（无目录前缀时，通过basename反向映射查找）
 	if !strings.Contains(name, "/") {
+		basenameStart := time.Now()
 		if absPath, ok := lookupAbsPathByBasename(name); ok {
+			log.Printf("[findMediaFile] 步骤3 basename映射命中 总耗时=%dms name=%s", time.Since(basenameStart).Milliseconds(), name)
 			return absPath
 		}
+		log.Printf("[findMediaFile] 步骤3 basename映射未命中 耗时=%dms name=%s", time.Since(basenameStart).Milliseconds(), name)
 	}
 
 	// 4. fallback到原始查找逻辑（可能触发Walk磁盘扫描）
 	log.Printf("[findMediaFile][WARN] 内存映射、缓存、basename均未命中，触发fallback查找: name=%s", name)
+	fallbackStart := time.Now()
 	result := findMediaFileUncached(name)
+	log.Printf("[findMediaFile] 步骤4 fallback完成 耗时=%dms 总耗时=%dms result=%s name=%s",
+		time.Since(fallbackStart).Milliseconds(), time.Since(findStart).Milliseconds(),
+		func() string { if result != "" { return "FOUND" }; return "NOT_FOUND" }(), name)
 	if result != "" {
 		findMediaFileCache.Lock()
 		findMediaFileCache.cache[name] = result
@@ -1082,47 +1156,115 @@ func getDuration(filePath string) float64 {
 }
 
 func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAudioIsMP3 bool, allAudioBrowserSupported bool, videoBitrate, audioBitrate string, audioCodecStr string) {
-	// 查缓存：先获取文件ModTime，如果缓存命中且ModTime一致则直接返回
+	totalStart := time.Now()
+
+	// 阶段1：os.Stat（检测磁盘休眠唤醒——如果休眠，这里会卡很久）
+	statStart := time.Now()
 	fileInfo, statErr := os.Stat(filePath)
+	statMs := time.Since(statStart).Milliseconds()
+	if statMs > 100 {
+		log.Printf("[getMediaInfo] 阶段1 os.Stat慢 耗时=%dms file=%s (疑似磁盘休眠唤醒)", statMs, filepath.Base(filePath))
+	}
+
+	// 阶段2：查缓存
 	if statErr == nil {
 		modTime := fileInfo.ModTime()
+		cacheStart := time.Now()
 		mediaInfoCache.RLock()
 		if entry, ok := mediaInfoCache.cache[filePath]; ok && entry.modTime.Equal(modTime) {
 			result := entry
 			mediaInfoCache.RUnlock()
+			log.Printf("[getMediaInfo] 缓存命中 总耗时=%dms file=%s", time.Since(totalStart).Milliseconds(), filepath.Base(filePath))
 			return result.videoCodec, result.allAudioIsAAC, result.allAudioIsMP3, result.allAudioBrowserSupported, result.videoBitrate, result.audioBitrate, result.audioCodecStr
 		}
 		mediaInfoCache.RUnlock()
+		log.Printf("[getMediaInfo] 缓存查询耗时=%dms file=%s", time.Since(cacheStart).Milliseconds(), filepath.Base(filePath))
 	}
 
-	log.Printf("[getMediaInfo] 缓存未命中，调用ffprobe: file=%s", filepath.Base(filePath))
+	// 阶段3：文件预热——主动读一小块数据，用来检测磁盘是否休眠
+	// （如果文件所在磁盘处于休眠状态，这个读取会等待磁盘唤醒，时间会显示在日志中）
+	// 同时启动一个 goroutine 监控：如果 500ms 内 Read 没返回，则认为磁盘休眠，
+	// 通过全局状态告知前端显示"硬盘已休眠，正在等待硬盘唤醒响应..."
+	preheatStart := time.Now()
+	wakingFlag := int32(0) // 1 = 已经通知前端进入休眠等待
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-time.After(500 * time.Millisecond):
+			// 500ms 还没完成，认为是磁盘休眠
+			atomic.StoreInt32(&wakingFlag, 1)
+			setDiskSleeping(true, filePath)
+		case <-done:
+			// Read 已返回，无需通知
+		}
+	}()
+	if f, err := os.Open(filePath); err == nil {
+		buf := make([]byte, 4096)
+		f.Read(buf)
+		f.Close()
+	}
+	close(done)
+	preheatMs := time.Since(preheatStart).Milliseconds()
+	if atomic.LoadInt32(&wakingFlag) == 1 {
+		// 唤醒完成，清除前端提示
+		setDiskSleeping(false, filePath)
+	}
+	if preheatMs > 100 {
+		log.Printf("[getMediaInfo] 阶段3 文件预热慢 耗时=%dms file=%s (磁盘休眠唤醒)", preheatMs, filepath.Base(filePath))
+	}
+
+	// 阶段4：启动 ffprobe 子进程
 	startTime := time.Now()
 	ffprobePath := getFFprobePath()
+	log.Printf("[getMediaInfo] 缓存未命中，调用ffprobe: file=%s", filepath.Base(filePath))
 
-	videoCodecCmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filePath)
-	videoCodecOutput, err := videoCodecCmd.CombinedOutput()
-	if err != nil {
-		videoCodec = ""
-	} else {
-		videoCodec = strings.TrimSpace(string(videoCodecOutput))
+	// 一次 ffprobe 调用拿到所有信息（视频/音频 codec、码率、声道数、格式码率）
+	// 替代原先的 4 次串行调用
+	cmd := exec.Command(ffprobePath, "-v", "error",
+		"-show_entries", "stream=codec_type,codec_name,bit_rate,channels:format=bit_rate",
+		"-of", "json", filePath)
+	output, cmdErr := cmd.CombinedOutput()
+	ffprobeMs := time.Since(startTime).Milliseconds()
+	log.Printf("[getMediaInfo] 阶段4 ffprobe完成 耗时=%dms 输出长度=%d 错误=%v file=%s",
+		ffprobeMs, len(output), cmdErr, filepath.Base(filePath))
+
+	type probeStream struct {
+		CodecType string `json:"codec_type"`
+		CodecName string `json:"codec_name"`
+		BitRate   string `json:"bit_rate"`
+		Channels  int    `json:"channels,omitempty"`
+	}
+	type probeFormat struct {
+		BitRate string `json:"bit_rate"`
+	}
+	type probeResult struct {
+		Streams []probeStream `json:"streams"`
+		Format  probeFormat   `json:"format"`
 	}
 
-	audioCodecCmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filePath)
-	audioCodecOutput, err := audioCodecCmd.CombinedOutput()
-	if err != nil {
-		allAudioIsAAC = false
-		allAudioIsMP3 = false
-		allAudioBrowserSupported = false
-	} else {
-		allAudioIsAAC = true
-		allAudioIsMP3 = true
-		allAudioBrowserSupported = true
-		audioCodecs := strings.Split(strings.TrimSpace(string(audioCodecOutput)), "\n")
-		var codecNames []string
-		for _, codec := range audioCodecs {
-			codec = strings.TrimSpace(codec)
+	var pr probeResult
+	if cmdErr == nil {
+		json.Unmarshal(output, &pr)
+	}
+
+	var audioCodecNames []string
+	var streamVideoBitrate string // 视频流码率
+	var firstAudioBitrate string  // 第一条音频流码率
+	allAudioIsAAC = true
+	allAudioIsMP3 = true
+	allAudioBrowserSupported = true
+
+	for _, s := range pr.Streams {
+		switch strings.ToLower(s.CodecType) {
+		case "video":
+			if videoCodec == "" {
+				videoCodec = strings.TrimSpace(s.CodecName)
+				streamVideoBitrate = strings.TrimSpace(s.BitRate)
+			}
+		case "audio":
+			codec := strings.TrimSpace(s.CodecName)
 			if codec != "" {
-				codecNames = append(codecNames, strings.ToUpper(codec))
+				audioCodecNames = append(audioCodecNames, strings.ToUpper(codec))
 				codecLower := strings.ToLower(codec)
 				if codecLower != "aac" {
 					allAudioIsAAC = false
@@ -1134,48 +1276,37 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 					allAudioBrowserSupported = false
 				}
 			}
-		}
-		audioCodecStr = strings.Join(codecNames, ",")
-	}
-
-	bitrateCmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", filePath)
-	bitrateOutput, err := bitrateCmd.CombinedOutput()
-	bitrateStr := strings.TrimSpace(string(bitrateOutput))
-
-	var bitrateInt int
-	if err != nil || bitrateStr == "" || bitrateStr == "N/A" {
-		bitrateCmd2 := exec.Command(ffprobePath, "-v", "error", "-show_entries", "format=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", filePath)
-		bitrateOutput2, err2 := bitrateCmd2.CombinedOutput()
-		bitrateStr = strings.TrimSpace(string(bitrateOutput2))
-		if err2 != nil || bitrateStr == "" || bitrateStr == "N/A" {
-			videoBitrate = "1000k"
-		} else {
-			bitrateInt, _ = strconv.Atoi(bitrateStr)
-			if bitrateInt <= 0 {
-				videoBitrate = "1000k"
-			} else {
-				videoBitrate = fmt.Sprintf("%dk", bitrateInt/1000)
+			// 记录第一条音频流码率
+			if firstAudioBitrate == "" {
+				firstAudioBitrate = strings.TrimSpace(s.BitRate)
 			}
 		}
-	} else if _, err := strconv.Atoi(bitrateStr); err != nil {
+	}
+	audioCodecStr = strings.Join(audioCodecNames, ",")
+
+	// 视频码率：优先用 stream.bit_rate，失败则 fallback 到 format.bit_rate（一次 ffprobe 已拿到，无需再调一次）
+	bitrateStr := streamVideoBitrate
+	if bitrateStr == "" || bitrateStr == "N/A" {
+		bitrateStr = strings.TrimSpace(pr.Format.BitRate)
+	}
+	if bitrateStr == "" || bitrateStr == "N/A" {
+		videoBitrate = "1000k"
+	} else if bitrateInt, err := strconv.Atoi(bitrateStr); err != nil || bitrateInt <= 0 {
 		videoBitrate = "1000k"
 	} else {
-		bitrateInt, _ = strconv.Atoi(bitrateStr)
-		if bitrateInt <= 0 {
-			videoBitrate = "1000k"
-		} else {
-			videoBitrate = fmt.Sprintf("%dk", bitrateInt/1000)
-		}
+		videoBitrate = fmt.Sprintf("%dk", bitrateInt/1000)
 	}
 
-	audioBitrateCmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=bit_rate", "-of", "default=noprint_wrappers=1:nokey=1", filePath)
-	audioBitrateOutput, err := audioBitrateCmd.CombinedOutput()
-	audioBitrateStr := strings.TrimSpace(string(audioBitrateOutput))
-	if err != nil || audioBitrateStr == "" || audioBitrateStr == "0" {
+	// 音频码率
+	if firstAudioBitrate == "" || firstAudioBitrate == "0" {
 		audioBitrate = "192k"
 	} else {
-		bitrate, _ := strconv.Atoi(strings.TrimSpace(string(audioBitrateOutput)))
-		audioBitrate = fmt.Sprintf("%dk", bitrate/1000)
+		bitrate, _ := strconv.Atoi(firstAudioBitrate)
+		if bitrate <= 0 {
+			audioBitrate = "192k"
+		} else {
+			audioBitrate = fmt.Sprintf("%dk", bitrate/1000)
+		}
 	}
 
 	// 存入缓存
@@ -1205,23 +1336,50 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 		mediaInfoCache.Unlock()
 	}
 
-	log.Printf("[getMediaInfo] ffprobe完成: file=%s 耗时=%dms vCodec=%s aCodec=%s",
-		filepath.Base(filePath), time.Since(startTime).Milliseconds(), videoCodec, audioCodecStr)
+	log.Printf("[getMediaInfo] ffprobe完成: file=%s 总耗时=%dms (stat=%dms preheat=%dms ffprobe=%dms) vCodec=%s aCodec=%s",
+		filepath.Base(filePath), time.Since(totalStart).Milliseconds(), statMs, preheatMs, ffprobeMs, videoCodec, audioCodecStr)
 
 	return
 }
 
 // MediaTrackWarning 媒体轨道问题警告
 type MediaTrackWarning struct {
-	NoVideo        bool   `json:"noVideo"`        // 视频文件无视频轨
-	NoAudio        bool   `json:"noAudio"`        // 无音频轨
-	AudioTrackCount int   `json:"audioTrackCount"` // 音频轨道数
-	Message        string `json:"message"`        // 人类可读的警告信息
+	NoVideo         bool   `json:"noVideo"`         // 视频文件无视频轨
+	NoAudio         bool   `json:"noAudio"`         // 无音频轨
+	AudioTrackCount int    `json:"audioTrackCount"` // 音频轨道数
+	AudioChannels   int    `json:"audioChannels"`   // 第一条音频轨的声道数（1=单声道, 2=立体声）
+	Message         string `json:"message"`         // 人类可读的警告信息
+}
+
+// mediaTracksCache checkMediaTracks 的结果缓存，避免同一文件多次调用 ffprobe
+var mediaTracksCache struct {
+	sync.RWMutex
+	cache map[string]*mediaTracksCacheEntry
+}
+
+type mediaTracksCacheEntry struct {
+	warning *MediaTrackWarning
+	modTime time.Time
 }
 
 // checkMediaTracks 检查文件是否缺少视频轨或音频轨
 // 对于视频容器（mkv/mp4/mpg/avi等）中缺少视频或音频的情况发出警告
 func checkMediaTracks(filePath string) *MediaTrackWarning {
+	// 查缓存：先获取文件 ModTime，命中且 ModTime 一致则直接返回
+	fileInfo, statErr := os.Stat(filePath)
+	if statErr == nil {
+		modTime := fileInfo.ModTime()
+		mediaTracksCache.RLock()
+		if entry, ok := mediaTracksCache.cache[filePath]; ok && entry.modTime.Equal(modTime) {
+			w := entry.warning
+			mediaTracksCache.RUnlock()
+			return w
+		}
+		mediaTracksCache.RUnlock()
+	}
+
+	// 一次 ffprobe 调用拿到视频/音频轨存在性、音频轨数、声道数
+	// 替代原先的 3 次串行调用
 	ffprobePath := getFFprobePath()
 	ext := strings.ToLower(filepath.Ext(filePath))
 	videoExts := map[string]bool{
@@ -1232,27 +1390,45 @@ func checkMediaTracks(filePath string) *MediaTrackWarning {
 	}
 	isVideoContainer := videoExts[ext]
 
-	// 检查视频轨
-	hasVideo := false
-	cmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "v", "-show_entries", "stream=codec_type", "-of", "csv=p=0", filePath)
-	if out, err := cmd.CombinedOutput(); err == nil {
-		hasVideo = strings.TrimSpace(string(out)) != ""
-	}
+	startTime := time.Now()
+	cmd := exec.Command(ffprobePath, "-v", "error",
+		"-show_entries", "stream=codec_type,channels",
+		"-of", "json", filePath)
+	output, _ := cmd.CombinedOutput()
+	log.Printf("[checkMediaTracks] ffprobe完成: file=%s 耗时=%dms 输出长度=%d",
+		filepath.Base(filePath), time.Since(startTime).Milliseconds(), len(output))
 
-	// 检查音频轨
+	type probeStream struct {
+		CodecType string `json:"codec_type"`
+		Channels  int    `json:"channels,omitempty"`
+	}
+	type probeResult struct {
+		Streams []probeStream `json:"streams"`
+	}
+	var pr probeResult
+	json.Unmarshal(output, &pr)
+
+	hasVideo := false
 	hasAudio := false
 	audioTrackCount := 0
-	cmd = exec.Command(ffprobePath, "-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", filePath)
-	if out, err := cmd.CombinedOutput(); err == nil {
-		lines := strings.TrimSpace(string(out))
-		if lines != "" {
-			hasAudio = true
-			audioTrackCount = len(strings.Split(lines, "\n"))
+	audioChannels := 0
+	for _, s := range pr.Streams {
+		switch strings.ToLower(s.CodecType) {
+		case "video":
+			hasVideo = true
+		case "audio":
+			audioTrackCount++
+			if audioTrackCount == 1 {
+				audioChannels = s.Channels
+			}
 		}
+	}
+	if audioTrackCount > 0 {
+		hasAudio = true
 	}
 
 	var warnings []string
-	w := &MediaTrackWarning{AudioTrackCount: audioTrackCount}
+	w := &MediaTrackWarning{AudioTrackCount: audioTrackCount, AudioChannels: audioChannels}
 
 	if isVideoContainer && !hasVideo {
 		w.NoVideo = true
@@ -1269,9 +1445,31 @@ func checkMediaTracks(filePath string) *MediaTrackWarning {
 	if len(warnings) > 0 {
 		w.Message = "曲库文件异常: " + strings.Join(warnings, "，") + "。这不是系统问题，是源文件本身的问题。"
 		fmt.Printf("[警告] %s: %s\n", filepath.Base(filePath), w.Message)
-		return w
+	} else {
+		log.Printf("[checkMediaTracks] ffprobe完成: file=%s audioTrackCount=%d channels=%d hasVideo=%v",
+			filepath.Base(filePath), audioTrackCount, audioChannels, hasVideo)
 	}
-	// 文件正常时也返回结构体，确保 audioTrackCount 字段正确传给前端
+
+	// 存入缓存
+	if statErr == nil {
+		mediaTracksCache.Lock()
+		if len(mediaTracksCache.cache) >= mediaInfoCacheMaxEntries {
+			count := 0
+			for key := range mediaTracksCache.cache {
+				delete(mediaTracksCache.cache, key)
+				count++
+				if count >= mediaInfoCacheMaxEntries/2 {
+					break
+				}
+			}
+		}
+		mediaTracksCache.cache[filePath] = &mediaTracksCacheEntry{
+			warning: w,
+			modTime: fileInfo.ModTime(),
+		}
+		mediaTracksCache.Unlock()
+	}
+
 	return w
 }
 
