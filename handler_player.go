@@ -61,11 +61,11 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 <div class="play-info" id="playInfo" style="display:none">
   <div class="current" id="currentSong"></div>
   <div class="next" id="nextSong"></div>
-</div>
-<div class="qr-block" id="qrBlock" style="display:none;position:fixed;top:80px;right:20px;z-index:101;text-align:center">
-  <div style="font-size:13px;color:#5bc0de;margin-bottom:6px;text-shadow:0 1px 2px rgba(0,0,0,0.5)">手机扫码点歌</div>
-  <img id="qrImage" src="" alt="二维码" width="160" height="160" style="display:block;margin:0 auto;border-radius:4px;background:#fff;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,0.4)">
-  <div id="qrNetworkTip" style="font-size:11px;color:#f0ad4e;margin-top:6px;line-height:1.4;text-shadow:0 1px 2px rgba(0,0,0,0.5)"></div>
+  <div class="qr-block" id="qrBlock" style="display:none;margin-top:8px;text-align:center">
+    <div style="font-size:13px;color:#5bc0de;margin-bottom:4px;text-shadow:0 1px 2px rgba(0,0,0,0.5)">手机扫码点歌</div>
+    <img id="qrImage" src="" alt="二维码" width="140" height="140" style="display:block;margin:0 auto;border-radius:4px;background:#fff;padding:3px;box-shadow:0 2px 8px rgba(0,0,0,0.4)">
+    <div id="qrNetworkTip" style="font-size:11px;color:#f0ad4e;margin-top:4px;line-height:1.4;text-shadow:0 1px 2px rgba(0,0,0,0.5)"></div>
+  </div>
 </div>
 <div class="ctrl-bar">
   <button class="track-btn active" id="btnT0" onclick="switchTrack(0)">原唱</button>
@@ -592,18 +592,21 @@ function playVideo(url, name, type, path) {
   video = document.querySelector("video");
   video.src = url + '?t=' + Date.now();
   video.volume = lastVolume;
-  // 如果之前处于全屏，新video就绪后重新请求全屏（避免自动切歌退出全屏）
-  if (prevFullscreenElement) {
+  // 如果之前是video元素全屏（被替换会退出全屏），切歌后重新进入全屏
+  // 注意：documentElement全屏不受video替换影响，无需重新请求
+  // 同时：用户主动ESC退出后不再自动重新全屏（userExitedFullscreen标志）
+  if (prevFullscreenElement && prevFullscreenElement !== document.documentElement && !userExitedFullscreen) {
     setTimeout(function() {
       if (!video) return;
-      var target = (prevFullscreenElement === video) ? video : document.documentElement;
+      // 切歌瞬间用户未退出全屏，重新请求全屏（用documentElement更稳定）
       try {
-        if (target.requestFullscreen) target.requestFullscreen();
-        else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
-        else if (target.msRequestFullscreen) target.msRequestFullscreen();
-        else if (target.mozRequestFullScreen) target.mozRequestFullScreen();
+        var el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        else if (el.msRequestFullscreen) el.msRequestFullscreen();
+        else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
       } catch(e) {}
-    }, 100);
+    }, 200);
   }
 
   // 注册快捷键（只注册一次）
@@ -983,9 +986,42 @@ function resetTranscodeUI() {
   isTranscoding = false;
 }
 
+// 全屏状态跟踪：用户主动退出全屏后，切歌不再自动重新全屏
+var userExitedFullscreen = false;
+function getFullscreenElement() {
+  try {
+    return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+  } catch(e) { return null; }
+}
+function exitFullscreenApi() {
+  try {
+    if (document.exitFullscreen) document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    else if (document.msExitFullscreen) document.msExitFullscreen();
+    else if (document.mozCancelFullScreen) document.mozCancelFullScreen();
+  } catch(e) {}
+}
+document.addEventListener('fullscreenchange', function() {
+  if (!getFullscreenElement()) userExitedFullscreen = true;
+  else userExitedFullscreen = false;
+});
+document.addEventListener('webkitfullscreenchange', function() {
+  if (!getFullscreenElement()) userExitedFullscreen = true;
+  else userExitedFullscreen = false;
+});
+
 document.onkeydown = function(e) {
   if (e.key === "F11") {
-    document.documentElement.requestFullscreen();
+    e.preventDefault();
+    if (getFullscreenElement()) exitFullscreenApi();
+    else document.documentElement.requestFullscreen();
+    return;
+  }
+  if (e.key === "Escape") {
+    // 兜底：浏览器原生ESC如果未生效，主动调用API退出全屏
+    if (getFullscreenElement()) {
+      exitFullscreenApi();
+    }
   }
 };
 

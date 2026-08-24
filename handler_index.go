@@ -1601,11 +1601,15 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function loadSingerIndex() {
+        document.getElementById('singerLetters').innerHTML = '';
+        document.getElementById('singerList').innerHTML = '<div class="loading" style="text-align:center;padding:30px;color:#5bc0de;font-size:16px">正在加载歌手索引...</div>';
         fetch('/api/singers').then(function(r){return r.json();}).then(function(data){
             singerData = data;
             renderSingerLetters();
             var letters = Object.keys(data).sort();
             if (letters.length > 0) selectSingerLetter(letters[0]);
+        }).catch(function(){
+            document.getElementById('singerList').innerHTML = '<div style="text-align:center;color:#d9534f;padding:20px">加载失败，请重试</div>';
         });
     }
 
@@ -1626,23 +1630,31 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         for (var i = 0; i < spans.length; i++) {
             spans[i].className = spans[i].id === 'letter_' + letter ? 'active' : '';
         }
-        var singers = singerData[letter] || [];
-        var html = '<div class="singer-grid">';
-        for (var i = 0; i < singers.length; i++) {
-            html += '<div class="singer-btn" onclick="loadSingerSongs(\'' + singers[i].name.replace(/'/g, "\\'") + '\')">';
-            html += '<span class="sname">' + singers[i].name + '</span>';
-            html += '<span class="scount">' + singers[i].count + '首</span>';
+        var singerList = document.getElementById('singerList');
+        // 显示加载中提示（数据量大时渲染需要时间）
+        singerList.innerHTML = '<div class="loading" style="text-align:center;padding:30px;color:#5bc0de;font-size:15px">正在加载歌手列表...</div>';
+        // 用setTimeout让浏览器先渲染loading提示，再做实际渲染
+        setTimeout(function() {
+            var singers = singerData[letter] || [];
+            var html = '<div class="singer-grid">';
+            for (var i = 0; i < singers.length; i++) {
+                html += '<div class="singer-btn" onclick="loadSingerSongs(\'' + singers[i].name.replace(/'/g, "\\'") + '\')">';
+                html += '<span class="sname">' + singers[i].name + '</span>';
+                html += '<span class="scount">' + singers[i].count + '首</span>';
+                html += '</div>';
+            }
             html += '</div>';
-        }
-        html += '</div>';
-        if (singers.length === 0) {
-            html = '<div style="text-align:center;color:#ccc;padding:20px">暂无歌手</div>';
-        }
-        document.getElementById('singerList').innerHTML = html;
+            if (singers.length === 0) {
+                html = '<div style="text-align:center;color:#ccc;padding:20px">暂无歌手</div>';
+            }
+            singerList.innerHTML = html;
+        }, 0);
     }
 
     function loadSingerSongs(singer) {
         currentSingerName = singer;
+        var singerList = document.getElementById('singerList');
+        singerList.innerHTML = '<div class="loading" style="text-align:center;padding:30px;color:#5bc0de;font-size:15px">正在加载 ' + singer + ' 的歌曲...</div>';
         fetch('/api/songs-by-singer?singer=' + encodeURIComponent(singer)).then(function(r){return r.json();}).then(function(songs){
             var html = '<div class="singer-back" onclick="selectSingerLetter(\'' + currentSingerLetter + '\')">&#8592; 返回歌手列表</div>';
             html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + singer + ' (' + songs.length + '首)</div>';
@@ -1656,7 +1668,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 html += '</div>';
             }
             html += '</div>';
-            document.getElementById('singerList').innerHTML = html;
+            singerList.innerHTML = html;
+        }).catch(function(){
+            singerList.innerHTML = '<div style="text-align:center;color:#d9534f;padding:20px">加载失败，请重试</div>';
         });
     }
 
