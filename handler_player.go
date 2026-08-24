@@ -61,11 +61,11 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 <div class="play-info" id="playInfo" style="display:none">
   <div class="current" id="currentSong"></div>
   <div class="next" id="nextSong"></div>
-  <div class="qr-block" id="qrBlock" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1)">
-    <div style="font-size:13px;color:#5bc0de;margin-bottom:6px;text-align:center">手机扫码点歌</div>
-    <img id="qrImage" src="" alt="二维码" width="160" height="160" style="display:block;margin:0 auto;border-radius:4px;background:#fff;padding:4px">
-    <div id="qrNetworkTip" style="font-size:11px;color:#f0ad4e;margin-top:6px;text-align:center;line-height:1.4"></div>
-  </div>
+</div>
+<div class="qr-block" id="qrBlock" style="display:none;position:fixed;top:80px;right:20px;z-index:101;text-align:center">
+  <div style="font-size:13px;color:#5bc0de;margin-bottom:6px;text-shadow:0 1px 2px rgba(0,0,0,0.5)">手机扫码点歌</div>
+  <img id="qrImage" src="" alt="二维码" width="160" height="160" style="display:block;margin:0 auto;border-radius:4px;background:#fff;padding:4px;box-shadow:0 2px 8px rgba(0,0,0,0.4)">
+  <div id="qrNetworkTip" style="font-size:11px;color:#f0ad4e;margin-top:6px;line-height:1.4;text-shadow:0 1px 2px rgba(0,0,0,0.5)"></div>
 </div>
 <div class="ctrl-bar">
   <button class="track-btn active" id="btnT0" onclick="switchTrack(0)">原唱</button>
@@ -582,11 +582,29 @@ function playVideo(url, name, type, path) {
     video.removeAttribute('src');
     video.load();
   }
+  // 在重建video之前，保存当前全屏状态（自动切歌时保留全屏）
+  var prevFullscreenElement = null;
+  try {
+    prevFullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+  } catch(e) {}
   // 重建video元素，清除所有旧事件监听器
   document.getElementById("videoBox").innerHTML = '<video autoplay controls style="display: block;"></video>';
   video = document.querySelector("video");
   video.src = url + '?t=' + Date.now();
   video.volume = lastVolume;
+  // 如果之前处于全屏，新video就绪后重新请求全屏（避免自动切歌退出全屏）
+  if (prevFullscreenElement) {
+    setTimeout(function() {
+      if (!video) return;
+      var target = (prevFullscreenElement === video) ? video : document.documentElement;
+      try {
+        if (target.requestFullscreen) target.requestFullscreen();
+        else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen();
+        else if (target.msRequestFullscreen) target.msRequestFullscreen();
+        else if (target.mozRequestFullScreen) target.mozRequestFullScreen();
+      } catch(e) {}
+    }, 100);
+  }
 
   // 注册快捷键（只注册一次）
   registerKeydownOnce();

@@ -376,6 +376,13 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             playerWin = window.open('/player', 'ktvPlayer', 'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no');
             if(!playerWin || playerWin.closed){
                 showPopupBlockedWarning();
+            } else {
+                // 同步当前队列和会话ID给新打开的播放器窗口（修复：不点扫码按钮切歌时播放器无二维码）
+                setTimeout(function() {
+                    if (playerWin && !playerWin.closed) {
+                        playerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
+                    }
+                }, 1500);
             }
         }
     }
@@ -385,6 +392,13 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             audioPlayerWin = window.open('/audio-player', 'ktvAudioPlayer', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no');
             if(!audioPlayerWin || audioPlayerWin.closed){
                 showPopupBlockedWarning();
+            } else {
+                // 同步当前队列和会话ID给新打开的播放器窗口
+                setTimeout(function() {
+                    if (audioPlayerWin && !audioPlayerWin.closed) {
+                        audioPlayerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
+                    }
+                }, 1500);
             }
         }
     }
