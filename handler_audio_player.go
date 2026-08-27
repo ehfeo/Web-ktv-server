@@ -1150,6 +1150,10 @@ function playAudio(url, name, path) {
   audio.play().catch(function(){});
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
+  // 自动切歌后必须重启可视化绘制循环：上首播完的 onended 会 stopAnim()，
+  // 若此处不重启，波形/频谱画布会一直空白（手动切视图 setView 会拉起，故只有自动切歌出现）。
+  if (currentView !== 'lyrics' && analyser) { stopAnim(); drawFrame(); }
+
   document.getElementById('toolbar').style.display = 'flex';
 
   audio.ontimeupdate = function() {
