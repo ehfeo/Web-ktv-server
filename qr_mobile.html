@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>KTV点歌</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: linear-gradient(135deg, #0a0e27 0%, #1a1a4e 50%, #0d1137 100%);
+  color: #e0e0ff;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+.header {
+  background: linear-gradient(135deg, #1a1a5e, #2a2a8e);
+  padding: 14px 20px;
+  text-align: center;
+  font-size: 20px;
+  font-weight: bold;
+  color: #a0a0ff;
+  border-bottom: 1px solid #3a3a8e;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.search-bar {
+  display: flex;
+  padding: 10px 12px;
+  gap: 8px;
+  background: rgba(20, 20, 60, 0.8);
+  position: sticky;
+  top: 50px;
+  z-index: 10;
+}
+.search-bar input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #4a4a9e;
+  border-radius: 8px;
+  background: rgba(10, 10, 40, 0.9);
+  color: #e0e0ff;
+  font-size: 16px;
+  outline: none;
+}
+.search-bar input::placeholder { color: #6a6a9e; }
+.search-bar input:focus { border-color: #7070ff; }
+.search-bar button {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #5050cc, #7070ff);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.search-bar button:active { opacity: 0.8; }
+/* 标签栏 */
+.tab-bar {
+  display: flex;
+  background: rgba(20, 20, 60, 0.9);
+  position: sticky;
+  top: 102px;
+  z-index: 10;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab-item {
+  flex: 1;
+  min-width: 60px;
+  padding: 12px 4px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: bold;
+  color: #6a6a9e;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  white-space: nowrap;
+  transition: color 0.2s, border-color 0.2s;
+}
+.tab-item.active {
+  color: #7070ff;
+  border-bottom-color: #7070ff;
+}
+.tab-item:active { opacity: 0.7; }
+/* 面板 */
+.tab-panel { display: none; padding-bottom: 20px; }
+.tab-panel.active { display: block; }
+/* 通用 */
+.section-title {
+  padding: 12px 16px 6px;
+  font-size: 14px;
+  color: #8888cc;
+  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.result-count {
+  font-size: 12px;
+  color: #6a6a9e;
+  font-weight: normal;
+}
+.song-list { padding: 0 12px 12px; }
+.song-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 6px;
+  background: rgba(30, 30, 80, 0.6);
+  border-radius: 10px;
+  border: 1px solid rgba(60, 60, 140, 0.3);
+}
+.song-info { flex: 1; min-width: 0; }
+.song-name {
+  font-size: 15px;
+  color: #d0d0ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.song-detail {
+  font-size: 12px;
+  color: #7878b0;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-add {
+  padding: 6px 16px;
+  background: linear-gradient(135deg, #e04060, #ff6080);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  margin-left: 10px;
+  white-space: nowrap;
+}
+.btn-add:active { opacity: 0.8; }
+.btn-add:disabled { opacity: 0.4; cursor: default; }
+/* 分页 */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+}
+.page-btn {
+  padding: 6px 14px;
+  background: rgba(50, 50, 120, 0.6);
+  border: 1px solid #4a4a9e;
+  border-radius: 6px;
+  color: #a0a0ff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.page-btn:active { opacity: 0.7; }
+.page-btn:disabled { opacity: 0.3; cursor: default; }
+.page-info { color: #7878b0; font-size: 13px; }
+/* 歌手字母索引 */
+.letter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 12px;
+  background: rgba(20, 20, 60, 0.6);
+}
+.letter-bar span {
+  padding: 4px 10px;
+  background: rgba(50, 50, 120, 0.5);
+  border: 1px solid #4a4a9e;
+  border-radius: 6px;
+  color: #a0a0ff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.letter-bar span.active {
+  background: linear-gradient(135deg, #5050cc, #7070ff);
+  color: white;
+  border-color: #7070ff;
+}
+/* 歌手/分类网格 */
+.browse-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+  padding: 8px 12px;
+}
+.browse-item {
+  padding: 10px 6px;
+  background: rgba(30, 30, 80, 0.6);
+  border: 1px solid rgba(60, 60, 140, 0.3);
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+}
+.browse-item:active { opacity: 0.7; }
+.browse-item .bi-name {
+  font-size: 14px;
+  color: #d0d0ff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.browse-item .bi-count {
+  font-size: 11px;
+  color: #7878b0;
+  margin-top: 3px;
+}
+/* 返回按钮 */
+.back-btn {
+  display: inline-block;
+  padding: 8px 16px;
+  margin: 8px 12px;
+  background: rgba(50, 50, 120, 0.6);
+  border: 1px solid #4a4a9e;
+  border-radius: 8px;
+  color: #a0a0ff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.back-btn:active { opacity: 0.7; }
+/* 队列 */
+.queue-section { margin-top: 8px; padding-bottom: 20px; }
+.queue-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  margin: 0 12px 4px;
+  background: rgba(30, 30, 80, 0.4);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.queue-item.playing {
+  background: rgba(80, 50, 120, 0.6);
+  border: 1px solid rgba(140, 80, 200, 0.4);
+}
+.queue-index { width: 28px; color: #7878b0; font-size: 13px; }
+.queue-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playing-icon { color: #ff6080; margin-right: 6px; font-size: 12px; }
+.empty-hint { text-align: center; padding: 30px; color: #5858a0; font-size: 14px; }
+.loading { text-align: center; padding: 20px; color: #7878b0; }
+/* 密码弹窗 */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+}
+.modal-overlay.show { display: flex; }
+.modal-box {
+  background: linear-gradient(135deg, #1a1a5e, #2a2a8e);
+  border-radius: 16px;
+  padding: 28px 24px;
+  width: 90%;
+  max-width: 340px;
+  border: 1px solid #4a4a9e;
+}
+.modal-title { font-size: 18px; font-weight: bold; color: #a0a0ff; text-align: center; margin-bottom: 16px; }
+.modal-box input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #4a4a9e;
+  border-radius: 8px;
+  background: rgba(10, 10, 40, 0.9);
+  color: #e0e0ff;
+  font-size: 18px;
+  text-align: center;
+  letter-spacing: 6px;
+  outline: none;
+}
+.modal-box input:focus { border-color: #7070ff; }
+.modal-btns { display: flex; gap: 10px; margin-top: 16px; }
+.modal-btns button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+.btn-confirm { background: linear-gradient(135deg, #5050cc, #7070ff); color: white; }
+.btn-cancel { background: rgba(60, 60, 120, 0.5); color: #a0a0cc; }
+.modal-error { color: #ff6080; font-size: 13px; text-align: center; margin-top: 8px; min-height: 20px; }
+/* Toast */
+.toast {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(80, 60, 140, 0.95);
+  color: #e0e0ff;
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; }
+.toast.error { background: rgba(140, 40, 60, 0.95); }
+.toast.success { background: rgba(40, 120, 80, 0.95); }
+</style>
+</head>
+<body>
+
+<div class="header">🎤 KTV点歌</div>
+
+<div class="search-bar">
+  <input type="text" id="searchInput" placeholder="输入歌名或歌手搜索..." />
+  <button onclick="doSearch(1)">搜索</button>
+</div>
+
+<div class="tab-bar" id="tabBar">
+  <div class="tab-item active" onclick="switchTab('search')" id="tabSearch">搜索</div>
+  <div class="tab-item" onclick="switchTab('singer')" id="tabSinger">歌手</div>
+  <div class="tab-item" onclick="switchTab('language')" id="tabLanguage">语种</div>
+  <div class="tab-item" onclick="switchTab('category')" id="tabCategory">曲种</div>
+  <div class="tab-item" onclick="switchTab('hot')" id="tabHot">热播</div>
+  <div class="tab-item" onclick="switchTab('queue')" id="tabQueue">队列</div>
+</div>
+
+<!-- 搜索面板 -->
+<div class="tab-panel active" id="panelSearch">
+  <div id="searchSection" style="display:none">
+    <div class="section-title">
+      <span>搜索结果</span>
+      <span class="result-count" id="resultCount"></span>
+    </div>
+    <div class="song-list" id="searchResults"></div>
+    <div class="pagination" id="searchPagination" style="display:none"></div>
+  </div>
+  <div id="searchHint" class="empty-hint">输入关键词搜索歌曲</div>
+</div>
+
+<!-- 歌手面板 -->
+<div class="tab-panel" id="panelSinger">
+  <div id="singerIndexView">
+    <div class="letter-bar" id="singerLetters"></div>
+    <div class="browse-grid" id="singerGrid"></div>
+  </div>
+  <div id="singerSongsView" style="display:none">
+    <span class="back-btn" onclick="showSingerIndex()">&#8592; 返回歌手列表</span>
+    <div class="section-title"><span id="singerSongsTitle"></span><span class="result-count" id="singerSongsCount"></span></div>
+    <div class="song-list" id="singerSongsList"></div>
+    <div class="pagination" id="singerSongsPagination" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 语种面板 -->
+<div class="tab-panel" id="panelLanguage">
+  <div id="langIndexView">
+    <div class="browse-grid" id="langGrid"></div>
+  </div>
+  <div id="langSongsView" style="display:none">
+    <span class="back-btn" onclick="showLangIndex()">&#8592; 返回语种列表</span>
+    <div class="section-title"><span id="langSongsTitle"></span><span class="result-count" id="langSongsCount"></span></div>
+    <div class="song-list" id="langSongsList"></div>
+    <div class="pagination" id="langSongsPagination" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 曲种面板 -->
+<div class="tab-panel" id="panelCategory">
+  <div id="catIndexView">
+    <div class="browse-grid" id="catGrid"></div>
+  </div>
+  <div id="catSongsView" style="display:none">
+    <span class="back-btn" onclick="showCatIndex()">&#8592; 返回曲种列表</span>
+    <div class="section-title"><span id="catSongsTitle"></span><span class="result-count" id="catSongsCount"></span></div>
+    <div class="song-list" id="catSongsList"></div>
+    <div class="pagination" id="catSongsPagination" style="display:none"></div>
+  </div>
+</div>
+
+<!-- 热播面板 -->
+<div class="tab-panel" id="panelHot">
+  <div class="section-title"><span>热播歌曲</span><span class="result-count" id="hotCount"></span></div>
+  <div class="song-list" id="hotList"></div>
+  <div class="pagination" id="hotPagination" style="display:none"></div>
+</div>
+
+<!-- 队列面板 -->
+<div class="tab-panel" id="panelQueue">
+  <div class="queue-section">
+    <div class="section-title" id="queueTitle">当前播放队列</div>
+    <div id="queueList">
+      <div class="empty-hint">暂无播放队列</div>
+    </div>
+  </div>
+</div>
+
+<!-- 密码弹窗 -->
+<div class="modal-overlay" id="passwordModal">
+  <div class="modal-box">
+    <div class="modal-title">🔒 请输入房间密码</div>
+    <input type="password" id="passwordInput" placeholder="请输入密码" maxlength="10" />
+    <div class="modal-error" id="passwordError"></div>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closePasswordModal()">取消</button>
+      <button class="btn-confirm" onclick="submitPassword()">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const SESSION_ID = "{{.SessionID}}";
+const PAGE_SIZE = 20;
+let ws = null;
+let authenticated = false;
+let reconnectTimer = null;
+let currentKeyword = '';
+let currentPage = 1;
+let totalResults = 0;
+
+// 浏览状态
+let singerData = null;
+let singerLetter = '';
+let currentSinger = '';
+let langData = null;
+let currentLang = '';
+let catData = null;
+let currentCat = '';
+let pendingBrowseID = null;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws/mobile?session=' + encodeURIComponent(SESSION_ID));
+
+  ws.onopen = function() { console.log('WebSocket已连接'); };
+
+  ws.onmessage = function(e) {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch(err) { return; }
+
+    switch(msg.type) {
+      case 'needPassword':
+        showPasswordModal();
+        break;
+      case 'passwordResult':
+        if (msg.valid) {
+          authenticated = true;
+          closePasswordModal();
+          showToast('验证成功', 'success');
+        } else {
+          document.getElementById('passwordError').textContent = '密码错误，请重试';
+        }
+        break;
+      case 'searchResult':
+        totalResults = msg.total || 0;
+        currentPage = msg.page || 1;
+        renderSearchResults(msg.songs || [], msg.total || 0, msg.page || 1, msg.pageSize || PAGE_SIZE);
+        break;
+      case 'queueUpdate':
+        renderQueue(msg.queue || [], msg.currentPlayingIndex || 0);
+        break;
+      case 'browseResult':
+        handleBrowseResult(msg);
+        break;
+      case 'error':
+        showToast(msg.message, 'error');
+        break;
+    }
+  };
+
+  ws.onclose = function() {
+    console.log('WebSocket断开，3秒后重连...');
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+  ws.onerror = function() { console.log('WebSocket错误'); };
+}
+
+function sendMsg(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
+  }
+}
+
+// ==================== 标签切换 ====================
+function switchTab(tab) {
+  var tabs = ['search','singer','language','category','hot','queue'];
+  for (var i = 0; i < tabs.length; i++) {
+    var t = tabs[i];
+    document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).className = 'tab-item' + (t === tab ? ' active' : '');
+    var panel = document.getElementById('panel' + t.charAt(0).toUpperCase() + t.slice(1));
+    if (panel) panel.className = 'tab-panel' + (t === tab ? ' active' : '');
+  }
+  if (tab === 'singer' && !singerData) browseSingerIndex();
+  if (tab === 'language' && !langData) browseLangIndex();
+  if (tab === 'category' && !catData) browseCatIndex();
+  if (tab === 'hot') browseHotSongs(1);
+}
+
+// ==================== 搜索 ====================
+function doSearch(page) {
+  const keyword = document.getElementById('searchInput').value.trim();
+  if (!keyword) return;
+  currentKeyword = keyword;
+  currentPage = page || 1;
+  sendMsg({ type: 'search', keyword: keyword, page: currentPage, pageSize: PAGE_SIZE });
+  document.getElementById('searchHint').style.display = 'none';
+  document.getElementById('searchSection').style.display = 'block';
+  document.getElementById('searchResults').innerHTML = '<div class="loading">搜索中...</div>';
+  document.getElementById('searchPagination').style.display = 'none';
+}
+
+document.getElementById('searchInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doSearch(1);
+});
+document.getElementById('searchInput').addEventListener('input', function() {
+  if (!this.value.trim()) {
+    document.getElementById('searchSection').style.display = 'none';
+    document.getElementById('searchHint').style.display = 'block';
+    document.getElementById('searchResults').innerHTML = '';
+    document.getElementById('searchPagination').style.display = 'none';
+    currentKeyword = '';
+  }
+});
+
+// ==================== 浏览请求 ====================
+function sendBrowse(browseType, opts) {
+  var msg = { type: 'browse', keyword: browseType, page: 1, pageSize: PAGE_SIZE };
+  if (opts) {
+    if (opts.singer) msg.singer = opts.singer;
+    if (opts.language) msg.language = opts.language;
+    if (opts.category) msg.category = opts.category;
+    if (opts.page) msg.page = opts.page;
+  }
+  pendingBrowseID = browseType + '_' + Date.now();
+  msg.requestId = pendingBrowseID;
+  sendMsg(msg);
+  return msg.requestId;
+}
+
+function handleBrowseResult(msg) {
+  var data = msg.data || null;
+  // 歌曲列表结果带 page 字段(page>=1不省略)；索引结果带 data 字段
+  if (msg.page !== undefined) {
+    renderBrowseSongs(msg);
+  } else if (data) {
+    renderBrowseIndex(data);
+  }
+}
+
+// ==================== 歌手 ====================
+function browseSingerIndex() {
+  sendBrowse('singerIndex');
+  document.getElementById('singerLetters').innerHTML = '<div class="loading">加载中...</div>';
+  document.getElementById('singerGrid').innerHTML = '';
+}
+
+function renderBrowseIndex(data) {
+  // 判断是歌手索引还是语种/曲种索引
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    // 歌手索引（按字母分组的map）
+    singerData = data;
+    var letters = Object.keys(data).sort();
+    var html = '';
+    for (var i = 0; i < letters.length; i++) {
+      html += '<span onclick="selectSingerLetter(\'' + letters[i] + '\')" id="sletter_' + letters[i] + '">' + letters[i] + '</span>';
+    }
+    document.getElementById('singerLetters').innerHTML = html;
+    if (letters.length > 0) selectSingerLetter(letters[0]);
+  } else if (Array.isArray(data)) {
+    // 语种或曲种索引
+    var html = '';
+    for (var i = 0; i < data.length; i++) {
+      var item = data[i];
+      // 判断是语种还是曲种：根据当前激活的tab
+      var activeTab = document.querySelector('.tab-item.active');
+      if (activeTab && activeTab.id === 'tabLanguage') {
+        langData = data;
+        html += '<div class="browse-item" onclick="selectLanguage(\'' + escAttr(item.name) + '\')">';
+      } else {
+        catData = data;
+        html += '<div class="browse-item" onclick="selectCategory(\'' + escAttr(item.name) + '\')">';
+      }
+      html += '<div class="bi-name">' + escHtml(item.name) + '</div>';
+      html += '<div class="bi-count">' + item.count + '首</div>';
+      html += '</div>';
+    }
+    // 填充到对应的面板
+    if (langData === data) {
+      document.getElementById('langGrid').innerHTML = html || '<div class="empty-hint">暂无语种</div>';
+    } else {
+      document.getElementById('catGrid').innerHTML = html || '<div class="empty-hint">暂无曲种</div>';
+    }
+  }
+}
+
+function selectSingerLetter(letter) {
+  singerLetter = letter;
+  var spans = document.getElementById('singerLetters').children;
+  for (var i = 0; i < spans.length; i++) {
+    spans[i].className = spans[i].id === 'sletter_' + letter ? 'active' : '';
+  }
+  var singers = singerData[letter] || [];
+  var html = '';
+  for (var i = 0; i < singers.length; i++) {
+    html += '<div class="browse-item" onclick="selectSinger(\'' + escAttr(singers[i].name) + '\')">';
+    html += '<div class="bi-name">' + escHtml(singers[i].name) + '</div>';
+    html += '<div class="bi-count">' + singers[i].count + '首</div>';
+    html += '</div>';
+  }
+  document.getElementById('singerGrid').innerHTML = html || '<div class="empty-hint">暂无歌手</div>';
+}
+
+function selectSinger(singer) {
+  currentSinger = singer;
+  document.getElementById('singerIndexView').style.display = 'none';
+  document.getElementById('singerSongsView').style.display = 'block';
+  document.getElementById('singerSongsTitle').textContent = singer;
+  document.getElementById('singerSongsList').innerHTML = '<div class="loading">加载中...</div>';
+  loadSingerSongs(1);
+}
+
+function loadSingerSongs(page) {
+  sendBrowse('singerSongs', { singer: currentSinger, page: page });
+}
+
+function showSingerIndex() {
+  document.getElementById('singerSongsView').style.display = 'none';
+  document.getElementById('singerIndexView').style.display = 'block';
+}
+
+// ==================== 语种 ====================
+function browseLangIndex() {
+  sendBrowse('languageIndex');
+  document.getElementById('langGrid').innerHTML = '<div class="loading">加载中...</div>';
+}
+
+function selectLanguage(lang) {
+  currentLang = lang;
+  document.getElementById('langIndexView').style.display = 'none';
+  document.getElementById('langSongsView').style.display = 'block';
+  document.getElementById('langSongsTitle').textContent = lang;
+  document.getElementById('langSongsList').innerHTML = '<div class="loading">加载中...</div>';
+  loadLangSongs(1);
+}
+
+function loadLangSongs(page) {
+  sendBrowse('languageSongs', { language: currentLang, page: page });
+}
+
+function showLangIndex() {
+  document.getElementById('langSongsView').style.display = 'none';
+  document.getElementById('langIndexView').style.display = 'block';
+}
+
+// ==================== 曲种 ====================
+function browseCatIndex() {
+  sendBrowse('categoryIndex');
+  document.getElementById('catGrid').innerHTML = '<div class="loading">加载中...</div>';
+}
+
+function selectCategory(cat) {
+  currentCat = cat;
+  document.getElementById('catIndexView').style.display = 'none';
+  document.getElementById('catSongsView').style.display = 'block';
+  document.getElementById('catSongsTitle').textContent = cat;
+  document.getElementById('catSongsList').innerHTML = '<div class="loading">加载中...</div>';
+  loadCatSongs(1);
+}
+
+function loadCatSongs(page) {
+  sendBrowse('categorySongs', { category: currentCat, page: page });
+}
+
+function showCatIndex() {
+  document.getElementById('catSongsView').style.display = 'none';
+  document.getElementById('catIndexView').style.display = 'block';
+}
+
+// ==================== 热播 ====================
+function browseHotSongs(page) {
+  sendBrowse('hotSongs', { page: page });
+  document.getElementById('hotList').innerHTML = '<div class="loading">加载中...</div>';
+}
+
+// ==================== 浏览歌曲结果渲染 ====================
+function renderBrowseSongs(msg) {
+  var songs = msg.songs || [];
+  var total = msg.total || 0;
+  var page = msg.page || 1;
+  var pageSize = msg.pageSize || PAGE_SIZE;
+  var totalPages = Math.ceil(total / pageSize) || 1;
+
+  // 判断当前在哪个视图
+  var activeTab = document.querySelector('.tab-item.active');
+  var listEl, pagEl, countEl, loadFunc;
+
+  if (activeTab && activeTab.id === 'tabSinger' && currentSinger) {
+    listEl = document.getElementById('singerSongsList');
+    pagEl = document.getElementById('singerSongsPagination');
+    countEl = document.getElementById('singerSongsCount');
+    loadFunc = loadSingerSongs;
+  } else if (activeTab && activeTab.id === 'tabLanguage' && currentLang) {
+    listEl = document.getElementById('langSongsList');
+    pagEl = document.getElementById('langSongsPagination');
+    countEl = document.getElementById('langSongsCount');
+    loadFunc = loadLangSongs;
+  } else if (activeTab && activeTab.id === 'tabCategory' && currentCat) {
+    listEl = document.getElementById('catSongsList');
+    pagEl = document.getElementById('catSongsPagination');
+    countEl = document.getElementById('catSongsCount');
+    loadFunc = loadCatSongs;
+  } else if (activeTab && activeTab.id === 'tabHot') {
+    listEl = document.getElementById('hotList');
+    pagEl = document.getElementById('hotPagination');
+    countEl = document.getElementById('hotCount');
+    loadFunc = browseHotSongs;
+  } else {
+    return;
+  }
+
+  if (countEl) countEl.textContent = '共' + total + '首 ' + page + '/' + totalPages + '页';
+
+  if (!songs.length) {
+    listEl.innerHTML = '<div class="empty-hint">暂无歌曲</div>';
+    pagEl.style.display = 'none';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < songs.length; i++) {
+    var s = songs[i];
+    var name = escHtml(s.name || s.Name || '');
+    var detail = escHtml(s.singer || s.Singer || '');
+    var path = escAttr(s.path || s.Path || '');
+    var stype = escAttr(s.type || s.Type || 'video');
+    html += '<div class="song-item">'
+      + '<div class="song-info">'
+      + '<div class="song-name">' + name + '</div>'
+      + (detail ? '<div class="song-detail">' + detail + '</div>' : '')
+      + '</div>'
+      + '<button class="btn-add" onclick="addSong(\'' + path + '\',\'' + escJs(name) + '\',\'' + stype + '\')">点歌</button>'
+      + '</div>';
+  }
+  listEl.innerHTML = html;
+
+  if (totalPages <= 1) {
+    pagEl.style.display = 'none';
+    return;
+  }
+  var pagHtml = '<button class="page-btn" onclick="' + loadFunc.name + '(' + (page - 1) + ')"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>';
+  pagHtml += '<span class="page-info">' + page + ' / ' + totalPages + '</span>';
+  pagHtml += '<button class="page-btn" onclick="' + loadFunc.name + '(' + (page + 1) + ')"' + (page >= totalPages ? ' disabled' : '') + '>下一页</button>';
+  pagEl.innerHTML = pagHtml;
+  pagEl.style.display = 'flex';
+}
+
+// ==================== 搜索结果渲染 ====================
+function renderSearchResults(songs, total, page, pageSize) {
+  const container = document.getElementById('searchResults');
+  document.getElementById('searchSection').style.display = 'block';
+
+  var totalPages = Math.ceil(total / pageSize) || 1;
+  document.getElementById('resultCount').textContent = '共' + total + '首 ' + page + '/' + totalPages + '页';
+
+  if (!songs.length) {
+    container.innerHTML = '<div class="empty-hint">未找到相关歌曲</div>';
+    document.getElementById('searchPagination').style.display = 'none';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < songs.length; i++) {
+    const s = songs[i];
+    const name = escHtml(s.name || s.Name || '');
+    const detail = escHtml(s.singer || s.Singer || s.artist || s.Artist || s.type || s.Type || '');
+    const path = escAttr(s.path || s.Path || '');
+    const stype = escAttr(s.type || s.Type || 'video');
+    html += '<div class="song-item">'
+      + '<div class="song-info">'
+      + '<div class="song-name">' + name + '</div>'
+      + (detail ? '<div class="song-detail">' + detail + '</div>' : '')
+      + '</div>'
+      + '<button class="btn-add" onclick="addSong(\'' + path + '\',\'' + escJs(name) + '\',\'' + stype + '\')">点歌</button>'
+      + '</div>';
+  }
+  container.innerHTML = html;
+
+  var pagEl = document.getElementById('searchPagination');
+  if (totalPages <= 1) {
+    pagEl.style.display = 'none';
+    return;
+  }
+  var pagHtml = '<button class="page-btn" onclick="doSearch(' + (page - 1) + ')"' + (page <= 1 ? ' disabled' : '') + '>上一页</button>';
+  pagHtml += '<span class="page-info">' + page + ' / ' + totalPages + '</span>';
+  pagHtml += '<button class="page-btn" onclick="doSearch(' + (page + 1) + ')"' + (page >= totalPages ? ' disabled' : '') + '>下一页</button>';
+  pagEl.innerHTML = pagHtml;
+  pagEl.style.display = 'flex';
+}
+
+// ==================== 点歌 ====================
+function addSong(path, name, type) {
+  sendMsg({ type: 'addSong', path: path, name: name, songType: type });
+  showToast('已点歌: ' + name, 'success');
+}
+
+// ==================== 队列渲染 ====================
+function renderQueue(queue, currentIndex) {
+  const container = document.getElementById('queueList');
+  if (!queue.length) {
+    container.innerHTML = '<div class="empty-hint">暂无播放队列</div>';
+    document.getElementById('queueTitle').textContent = '当前播放队列';
+    return;
+  }
+  document.getElementById('queueTitle').textContent = '当前播放队列（' + queue.length + '首）';
+  let html = '';
+  for (let i = 0; i < queue.length; i++) {
+    const q = queue[i];
+    const name = escHtml(q.name || q.Name || '');
+    const isPlaying = (i === currentIndex);
+    html += '<div class="queue-item' + (isPlaying ? ' playing' : '') + '">'
+      + '<span class="queue-index">' + (i + 1) + '</span>'
+      + (isPlaying ? '<span class="playing-icon">▶</span>' : '')
+      + '<span class="queue-name">' + name + '</span>'
+      + '</div>';
+  }
+  container.innerHTML = html;
+}
+
+// ==================== 密码弹窗 ====================
+function showPasswordModal() {
+  document.getElementById('passwordModal').classList.add('show');
+  document.getElementById('passwordInput').value = '';
+  document.getElementById('passwordError').textContent = '';
+  setTimeout(function() { document.getElementById('passwordInput').focus(); }, 100);
+}
+function closePasswordModal() {
+  document.getElementById('passwordModal').classList.remove('show');
+}
+function submitPassword() {
+  const pwd = document.getElementById('passwordInput').value.trim();
+  if (!pwd) { document.getElementById('passwordError').textContent = '请输入密码'; return; }
+  document.getElementById('passwordError').textContent = '';
+  sendMsg({ type: 'verifyPassword', password: pwd });
+}
+document.getElementById('passwordInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') submitPassword();
+});
+
+// ==================== Toast ====================
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(function() { el.className = 'toast'; }, 2000);
+}
+
+// ==================== 工具函数 ====================
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escAttr(s) {
+  if (!s) return '';
+  return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"');
+}
+function escJs(s) {
+  if (!s) return '';
+  return s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+}
+
+// 启动连接
+connect();
+</script>
+</body>
+</html>

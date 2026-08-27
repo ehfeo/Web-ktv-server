@@ -11,8 +11,8 @@ func PlayerHandler(w http.ResponseWriter, r *http.Request) {
 <meta charset="UTF-8">
 <title>KTV 播放屏</title>
 <style>
-*{margin:0;padding:0;background:linear-gradient(135deg,#1e2d3a 0%,#1a252f 40%,#151f28 100%)}
-body{width:100vw;height:100vh;overflow:hidden}
+*{margin:0;padding:0}
+body{width:100vw;height:100vh;overflow:hidden;background:linear-gradient(135deg,#1e2d3a 0%,#1a252f 40%,#151f28 100%)}
 .video-container{position:relative;width:100vw;height:100vh;z-index:1}
 video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .lyrics-container{position:absolute;top:0;left:0;width:calc(100vw - 20px);height:85vh;display:flex;align-items:flex-start;justify-content:flex-start;z-index:10;overflow:hidden;pointer-events:none;margin-right:10px}
@@ -40,14 +40,14 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .progress-log{width:100%;height:150px;background:rgba(0,0,0,0.3);border-radius:4px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:12px;color:#aaa;overflow-y:auto;white-space:pre-wrap;border:1px solid rgba(255,255,255,0.05);box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
 .progress-command{width:100%;background:rgba(0,0,0,0.3);border-radius:4px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:11px;color:#f0ad4e;overflow-x:auto;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05);box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
 .progress-mediainfo{width:100%;background:rgba(0,0,0,0.3);border-radius:4px;padding:10px;font-family:Consolas,Monaco,monospace;font-size:12px;color:#5bc0de;white-space:pre-wrap;margin-bottom:10px;border:1px solid rgba(255,255,255,0.05);box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
-.play-info{position:fixed;top:20px;right:20px;background:rgba(26,37,47,0.9);color:#fff;padding:12px 24px;border-radius:6px;font-size:16px;font-weight:bold;z-index:100;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 2px 8px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06)}
-.play-info .current{color:#5bc0de;margin-bottom:5px;text-shadow:0 1px 2px rgba(0,0,0,0.3)}
-.play-info .next{color:#f0ad4e;text-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.play-info{position:fixed;top:20px;right:20px;background:transparent;color:#fff;padding:12px 24px;border-radius:6px;font-size:16px;font-weight:bold;z-index:100;box-shadow:none;border:none}
+.play-info .current{color:#5bc0de;margin-bottom:5px;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
+.play-info .next{color:#f0ad4e;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
 #trackWarningBar{background:#d9534f !important;box-shadow:0 2px 6px rgba(0,0,0,0.3) !important;border-radius:0 !important;position:fixed;top:0;left:0;right:0;z-index:2000;text-shadow:none}
 </style>
 </head>
 <body>
-<div class="video-container">
+<div class="video-container" id="videoContainer">
   <div id="videoBox"></div>
   <div class="lyrics-container" id="lyricsContainer">
     <div class="lyrics" id="lyrics"></div>
@@ -550,31 +550,30 @@ function playVideo(url, name, type, path) {
 
   currentFileName = name;
   currentFilePath = path || '';
-  var isAudio = isAudioFile(name);
 
-  // 检查文件轨道完整性（非音频文件）
-  if (!isAudio) {
-    // 重置上一首的轨道信息，避免短暂闪烁
-    mediaAudioTrackCount = -1;
-    mediaAudioChannels = -1;
-    var checkName = currentFilePath || name;
-    if (!checkName) return;
-    fetch('/api/check-tracks?name=' + encodeURIComponent(checkName))
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        mediaAudioTrackCount = (data && data.audioTrackCount) ? data.audioTrackCount : 0;
-        mediaAudioChannels = (data && data.audioChannels) ? data.audioChannels : 0;
-        updateTrackButtons();
-        if(data && data.message){
-          showTrackWarning(data);
-        } else {
-          hideTrackWarning();
-        }
-      })
-      .catch(function(){ hideTrackWarning(); });
-  } else {
-    hideTrackWarning();
-  }
+  // 视频播放器：仅处理视频文件，音频文件由 /audio-player 页面处理
+  var videoContainer = document.getElementById('videoContainer');
+  if (videoContainer) videoContainer.style.display = '';
+
+  // 检查文件轨道完整性（视频文件）
+  // 重置上一首的轨道信息，避免短暂闪烁
+  mediaAudioTrackCount = -1;
+  mediaAudioChannels = -1;
+  var checkName = currentFilePath || name;
+  if (!checkName) return;
+  fetch('/api/check-tracks?name=' + encodeURIComponent(checkName))
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      mediaAudioTrackCount = (data && data.audioTrackCount) ? data.audioTrackCount : 0;
+      mediaAudioChannels = (data && data.audioChannels) ? data.audioChannels : 0;
+      updateTrackButtons();
+      if(data && data.message){
+        showTrackWarning(data);
+      } else {
+        hideTrackWarning();
+      }
+    })
+    .catch(function(){ hideTrackWarning(); });
 
   // 先停止旧视频，终止旧的流媒体HTTP连接
   if (video) {
@@ -615,17 +614,11 @@ function playVideo(url, name, type, path) {
   video.controls = true;
   video.style.display = 'block';
 
-  if (isAudio) {
-    document.querySelector(".ctrl-bar").style.display = "none";
-  } else {
-    document.querySelector(".ctrl-bar").style.display = "flex";
-  }
+  document.querySelector(".ctrl-bar").style.display = "flex";
 
   video.addEventListener("canplay", function() {
     switchingSong = false;
     setTimeout(function() {
-      if (isAudio) return;
-
       // 根据已获取的音轨/声道信息更新按钮（check-tracks可能已返回）
       updateTrackButtons();
 
@@ -689,15 +682,10 @@ function playVideo(url, name, type, path) {
     if (isTranscoding || switchingSong) {
       return;
     }
-    if (!isAudio) {
-      document.getElementById('btnTranscode').style.display = 'block';
-    }
+    document.getElementById('btnTranscode').style.display = 'block';
     var errorMsg = '';
     if (e.target.error) {
       var errorCode = e.target.error.code;
-      if (isAudio && (errorCode === 4 || errorCode === 3)) {
-        return;
-      }
       switch(errorCode) {
         case 4:
           errorMsg = '该文件的视频编码不是浏览器支持编码，无法显示画面';
@@ -720,10 +708,8 @@ function playVideo(url, name, type, path) {
     }
   };
 
-  if (!isAudio) {
-    video.removeEventListener("loadedmetadata", onVideoMetadataLoaded);
-    video.addEventListener("loadedmetadata", onVideoMetadataLoaded);
-  }
+  video.removeEventListener("loadedmetadata", onVideoMetadataLoaded);
+  video.addEventListener("loadedmetadata", onVideoMetadataLoaded);
 
   showTip("正在播放：" + name);
 
@@ -807,10 +793,17 @@ function updatePlayerQR() {
       qrBlock.style.display = 'none';
       return;
     }
-    var qrUrl = 'http://' + data.qrServerAddr + '/m/' + currentSessionId;
+    // 内置=与主程序同IP同端口(取自当前请求主机)；外接=外接二维码服务器地址
+    var qrBase = data.qrUrlBase || ('http://' + data.qrServerAddr);
+    var qrUrl = qrBase + '/m/' + currentSessionId;
     var qrImgUrl = '/api/qr/image?url=' + encodeURIComponent(qrUrl);
     qrImg.src = qrImgUrl;
-    var ip = extractIP(data.qrServerAddr);
+    // 用 base 的主机判断内外网（内置模式 qrServerAddr 可能为空，需从 qrUrlBase 取值）
+    var addr = data.qrServerAddr;
+    if (!addr && data.qrUrlBase) {
+      addr = data.qrUrlBase.replace(/^[a-z][a-z0-9+\-.]*:\/\//i, '');
+    }
+    var ip = extractIP(addr);
     if (isPrivateIP(ip)) {
       qrTip.textContent = '手机必须与点歌电脑在同个网络内';
       qrTip.style.color = '#f0ad4e';
@@ -833,26 +826,40 @@ window.addEventListener("message", function(e) {
   } else if (data.action === "syncQueue") {
     currentQueue = data.list;
     currentPlayingIndex = data.currentPlayingIndex !== undefined ? data.currentPlayingIndex : -1;
-    if (data.sessionId) currentSessionId = data.sessionId;
+    if (data.sessionId) {
+      currentSessionId = data.sessionId;
+      updatePlayerQR();
+    }
     updateNextSongDisplay();
   }
 });
 
+var trackWarningTimer = null;
 function showTrackWarning(data) {
   var bar = document.getElementById('trackWarningBar');
   var text = document.getElementById('trackWarningText');
   if (bar && text) {
+    // 严重警告：无画面/无声音（红色，一直提示）
+    var severe = !!(data.noAudio || data.noVideo);
     var icon = '';
-    if (data.noVideo) icon += '🎬无画面 ';
-    if (data.noAudio) icon += '🔊无声音 ';
-    if (!data.noAudio && data.audioTrackCount === 1) icon += '🎵仅单音轨 ';
+    if (data.noVideo) icon += '无画面 ';
+    if (data.noAudio) icon += '无声音 ';
+    if (!data.noAudio && data.audioTrackCount === 1) icon += '仅单音轨 ';
     text.textContent = icon + ' ' + data.message;
     // 单音轨用橙色警告，无音轨/无视频用红色
-    bar.style.background = (data.noAudio || data.noVideo) ? '#d9534f' : '#f0ad4e';
+    bar.style.background = severe ? '#d9534f' : '#f0ad4e';
     bar.style.display = 'block';
+    // 轻度单音轨警告：跟随播放预告信息，仅播放前10秒显示，随后自动消失
+    if (!severe && data.audioTrackCount === 1) {
+      clearTimeout(trackWarningTimer);
+      trackWarningTimer = setTimeout(hideTrackWarning, 10000);
+    } else {
+      clearTimeout(trackWarningTimer);
+    }
   }
 }
 function hideTrackWarning() {
+  clearTimeout(trackWarningTimer);
   var bar = document.getElementById('trackWarningBar');
   if (bar) bar.style.display = 'none';
 }
@@ -1048,6 +1055,19 @@ window.addEventListener('load', function() {
   ctrlBar.style.opacity = '0';
 
   var urlParams = new URLSearchParams(window.location.search);
+  // 直接播放模式：主页面切歌时通过 URL 参数携带播放信息，避免 postMessage 在页面加载前丢失
+  var autoPlayUrl = urlParams.get('playUrl');
+  if (autoPlayUrl) {
+    var autoPlayName = urlParams.get('playName') || '';
+    var autoPlayPath = urlParams.get('playPath') || '';
+    // 清除 URL 参数，避免刷新时重复播放
+    history.replaceState(null, '', location.pathname);
+    setTimeout(function() {
+      playVideo(autoPlayUrl, autoPlayName, '', autoPlayPath);
+    }, 100);
+    return;
+  }
+  // 兼容旧机制：?play=NAME 触发 playByName 让主页面查询后播放
   var playFileName = urlParams.get('play');
   if (playFileName && window.opener && !window.opener.closed) {
     window.opener.postMessage({action: "playByName", name: decodeURIComponent(playFileName)}, "*");

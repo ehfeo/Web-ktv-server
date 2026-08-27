@@ -18,10 +18,16 @@ import (
 
 // QR客户端配置
 var (
-	qrServerAddr string // QR中继服务器地址，如 "123.45.67.89:8352"
+	qrServerAddr string // 外接二维码服务器地址，如 "123.45.67.89:8352"
 	qrPassword   string // 手机端验证密码
 	qrEnabled    bool   // 是否启用QR功能
+	qrMode       string // "internal"=内置二维码服务器 / "external"=外接，默认外接
 )
+
+// qrReplyHook 分发KTV侧处理结果：
+// 外接模式=发送到外接中继服务器（中继按requestId投递给对应手机）
+// 内置模式=进程内直接路由到对应手机WebSocket连接（见 qr_internal.go）
+var qrReplyHook func(resp qrMessage)
 
 // QR客户端运行时状态
 var (
@@ -88,6 +94,13 @@ func generateSessionID() string {
 	return hex.EncodeToString(b)
 }
 
+// generateRequestID 生成随机请求ID（8字符hex），用于内置模式下回包路由
+func generateRequestID() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // initQRConfig 初始化QR客户端配置，从配置文件加载
 func initQRConfig() {
 	data, err := ioutil.ReadFile(configFile)
@@ -99,6 +112,7 @@ func initQRConfig() {
 		QRServerAddr string `json:"qrServerAddr"`
 		QRPassword   string `json:"qrPassword"`
 		QREnabled    bool   `json:"qrEnabled"`
+		QRMode       string `json:"qrMode"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return
@@ -107,9 +121,13 @@ func initQRConfig() {
 	qrServerAddr = cfg.QRServerAddr
 	qrPassword = cfg.QRPassword
 	qrEnabled = cfg.QREnabled
+	qrMode = cfg.QRMode
+	if qrMode == "" {
+		qrMode = "external" // 默认外接
+	}
 
 	if qrEnabled {
-		fmt.Printf("[QR客户端] 配置加载: server=%s\n", qrServerAddr)
+		fmt.Printf("[QR客户端] 配置加载: mode=%s server=%s\n", qrMode, qrServerAddr)
 	}
 }
 
@@ -128,6 +146,7 @@ func saveQRConfig() {
 	cfg["qrServerAddr"] = qrServerAddr
 	cfg["qrPassword"] = qrPassword
 	cfg["qrEnabled"] = qrEnabled
+	cfg["qrMode"] = qrMode
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -136,9 +155,27 @@ func saveQRConfig() {
 	ioutil.WriteFile(configFile, out, 0644)
 }
 
-// startQRClient 启动QR WebSocket客户端（应在goroutine中调用）
+// isQRExternal 判断当前是否为外接模式（启用QR且模式为外接）
+func isQRExternal() bool {
+	return qrEnabled && qrMode == "external"
+}
+
+// qrReply 统一回复出口：内置模式走进程内路由，外接模式发送到中继服务器
+func qrReply(resp qrMessage) {
+	if qrReplyHook != nil {
+		qrReplyHook(resp)
+		return
+	}
+	// 默认(外接)：发送到外接中继服务器
+	qrWriteJSON(resp)
+}
+
+// startQRClient 启动QR WebSocket客户端（应在goroutine中调用，仅外接模式）
 func startQRClient() {
-	if !qrEnabled || qrServerAddr == "" {
+	if !isQRExternal() {
+		return
+	}
+	if qrServerAddr == "" {
 		return
 	}
 
@@ -261,9 +298,7 @@ func handleQRSearch(msg qrMessage) {
 		PageSize:  pageSize,
 	}
 
-	if err := qrWriteJSON(resp); err != nil {
-		fmt.Printf("[QR客户端] 发送搜索结果失败: %v\n", err)
-	}
+	qrReply(resp)
 }
 
 // handleQRAddSong 处理点歌请求，存入待处理列表供前端拉取
@@ -290,9 +325,7 @@ func handleQRAddSong(msg qrMessage) {
 		Message:   "已加入待处理列表",
 	}
 
-	if err := qrWriteJSON(resp); err != nil {
-		fmt.Printf("[QR客户端] 发送点歌确认失败: %v\n", err)
-	}
+	qrReply(resp)
 	fmt.Printf("[QR客户端] 收到点歌请求: %s [session=%s]\n", msg.Name, sid)
 }
 
@@ -307,9 +340,7 @@ func handleQRVerifyPassword(msg qrMessage) {
 		Message:   func() string { if success { return "验证成功" }; return "密码错误" }(),
 	}
 
-	if err := qrWriteJSON(resp); err != nil {
-		fmt.Printf("[QR客户端] 发送密码验证结果失败: %v\n", err)
-	}
+	qrReply(resp)
 }
 
 // handleQRQueueUpdate 处理队列更新（从手机端发来的队列查询等）
@@ -347,9 +378,7 @@ func handleQRRequestQueue(msg qrMessage) {
 		Queue:               cachedQueue,
 		CurrentPlayingIndex: cachedIndex,
 	}
-	if err := qrWriteJSON(resp); err != nil {
-		fmt.Printf("[QR客户端] 发送队列数据失败: %v\n", err)
-	}
+	qrReply(resp)
 }
 
 // handleQRBrowse 处理手机端浏览请求（歌手/语种/曲种/热播）
@@ -401,7 +430,7 @@ func handleQRBrowse(msg qrMessage) {
 			RequestID: msg.RequestID,
 			Data:      data,
 		}
-		qrWriteJSON(resp)
+		qrReply(resp)
 
 	case "singerSongs":
 		// 某歌手的歌曲列表（分页）
@@ -432,9 +461,9 @@ func handleQRBrowse(msg qrMessage) {
 			Results:   paged,
 			Total:     total,
 			Page:      page,
-			PageSize:  pageSize,
-		}
-		qrWriteJSON(resp)
+		PageSize:  pageSize,
+	}
+	qrReply(resp)
 
 	case "languageIndex":
 		// 语种列表（按歌曲数降序）
@@ -464,7 +493,7 @@ func handleQRBrowse(msg qrMessage) {
 			RequestID: msg.RequestID,
 			Data:      data,
 		}
-		qrWriteJSON(resp)
+		qrReply(resp)
 
 	case "languageSongs":
 		// 某语种的歌曲列表（分页）
@@ -501,7 +530,7 @@ func handleQRBrowse(msg qrMessage) {
 			Page:      page,
 			PageSize:  pageSize,
 		}
-		qrWriteJSON(resp)
+		qrReply(resp)
 
 	case "categoryIndex":
 		// 曲种列表（按歌曲数降序）
@@ -531,7 +560,7 @@ func handleQRBrowse(msg qrMessage) {
 			RequestID: msg.RequestID,
 			Data:      data,
 		}
-		qrWriteJSON(resp)
+		qrReply(resp)
 
 	case "categorySongs":
 		// 某曲种的歌曲列表（分页）
@@ -608,7 +637,7 @@ func handleQRBrowse(msg qrMessage) {
 			Page:      page,
 			PageSize:  pageSize,
 		}
-		qrWriteJSON(resp)
+		qrReply(resp)
 	}
 }
 
@@ -643,17 +672,34 @@ func registerQRHandlers() {
 func qrStatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
-	qrConnMutex.Lock()
 	connected := qrConnected
-	qrConnMutex.Unlock()
+	// 内置模式下，本进程即二维码服务器，视为已连接
+	if qrEnabled && qrMode == "internal" {
+		connected = true
+	}
+
+	// 二维码页面访问前缀：
+	// 内置=当前请求的主机（与主服务器同IP同端口），外接=外接二维码服务器地址
+	qrBase := "http://" + qrServerAddr
+	if qrMode == "internal" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		qrBase = scheme + "://" + r.Host
+	}
 
 	result := struct {
 		Connected    bool   `json:"connected"`
 		QRServerAddr string `json:"qrServerAddr"`
+		QrUrlBase    string `json:"qrUrlBase"`
+		Mode         string `json:"mode"`
 		Enabled      bool   `json:"enabled"`
 	}{
 		Connected:    connected,
 		QRServerAddr: qrServerAddr,
+		QrUrlBase:    qrBase,
+		Mode:         qrMode,
 		Enabled:      qrEnabled,
 	}
 
@@ -676,8 +722,8 @@ func qrRegisterSessionHandler(w http.ResponseWriter, r *http.Request) {
 	qrQueueIndex[sessionID] = 0
 	qrQueueMutex.Unlock()
 
-	// 向QR中继服务器发送注册消息（仅在QR启用时）
-	if qrEnabled && qrServerAddr != "" {
+	// 向QR中继服务器发送注册消息（仅外接模式）
+	if isQRExternal() {
 		regMsg := qrMessage{
 			Type:      "register",
 			SessionID: sessionID,
@@ -759,8 +805,8 @@ func qrQueueUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	qrQueueIndex[sid] = payload.CurrentPlayingIndex
 	qrQueueMutex.Unlock()
 
-	// 转发给QR服务器（仅在QR启用时）
-	if qrEnabled && qrServerAddr != "" {
+	// 转发给QR服务器（仅外接模式）
+	if isQRExternal() {
 		msg := qrMessage{
 			Type:                "queueUpdate",
 			SessionID:           sid,
@@ -771,6 +817,9 @@ func qrQueueUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		if err := qrWriteJSON(msg); err != nil {
 			fmt.Printf("[QR客户端] 转发队列更新失败: %v\n", err)
 		}
+	} else if qrEnabled && qrMode == "internal" {
+		// 内置模式：无需经过外接中继，直接广播队列更新到该会话的所有手机端
+		qrInternalBroadcastQueue(sid, payload.Queue, payload.CurrentPlayingIndex)
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

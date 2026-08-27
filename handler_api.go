@@ -64,12 +64,14 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QREnabled    bool     `json:"qrEnabled"`
 			QRServerAddr string   `json:"qrServerAddr"`
 			QRPassword   string   `json:"qrPassword"`
+			QRMode       string   `json:"qrMode"`
 		}{
 			MediaDirs:    mediaDirs,
 			Port:         port,
 			QREnabled:    qrEnabled,
 			QRServerAddr: qrServerAddr,
 			QRPassword:   qrPassword,
+			QRMode:       qrMode,
 		}
 		json.NewEncoder(w).Encode(result)
 		return
@@ -88,6 +90,7 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QREnabled    bool     `json:"qrEnabled"`
 			QRServerAddr string   `json:"qrServerAddr"`
 			QRPassword   string   `json:"qrPassword"`
+			QRMode       string   `json:"qrMode"`
 		}
 
 		if err := json.Unmarshal(data, &config); err != nil {
@@ -104,6 +107,13 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 		qrEnabled = config.QREnabled
 		qrServerAddr = config.QRServerAddr
 		qrPassword = config.QRPassword
+		if config.QRMode == "internal" {
+			qrMode = "internal"
+		} else if config.QRMode == "external" {
+			qrMode = "external"
+		} else if qrMode == "" {
+			qrMode = "external"
+		}
 
 		saveConfig()
 		saveQRConfig()

@@ -239,7 +239,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
 <script>
     var playerWin = null;
-    var audioPlayerWin = null;
+    // 已整合：音频与视频均使用同一个 playerWin（视频播放器内嵌 audio-player iframe）
     var queue = [];
     var currentPage = 1;
     var pageSize = 24;
@@ -308,9 +308,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if(currentPlayingIndex < 0) return;
         var item = queue[currentPlayingIndex];
         if(!item) return;
-        var isAudio = isAudioFile(item.name);
-        var win = isAudio ? audioPlayerWin : playerWin;
-        if(win && win.closed){
+        // 已整合：所有播放（音频/视频）都在 playerWin 中
+        if(playerWin && playerWin.closed){
             // 播放窗口被关闭，视为当前歌曲播放结束
             console.log('[KTV] 播放窗口已关闭，标记当前歌曲结束');
             // 从列表移除当前已播放歌曲
@@ -371,9 +370,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         document.body.appendChild(div);
     }
 
-    function openPlayer() {
+    function openPlayer(targetPage) {
+        // 已整合：音频用 /audio-player，视频用 /player，同一个窗口（ktvPlayer）
+        targetPage = targetPage || '/player';
         if(!playerWin || playerWin.closed){
-            playerWin = window.open('/player', 'ktvPlayer', 'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no');
+            playerWin = window.open(targetPage, 'ktvPlayer', 'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no');
             if(!playerWin || playerWin.closed){
                 showPopupBlockedWarning();
             } else {
@@ -388,19 +389,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function openAudioPlayer() {
-        if(!audioPlayerWin || audioPlayerWin.closed){
-            audioPlayerWin = window.open('/audio-player', 'ktvAudioPlayer', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no');
-            if(!audioPlayerWin || audioPlayerWin.closed){
-                showPopupBlockedWarning();
-            } else {
-                // 同步当前队列和会话ID给新打开的播放器窗口
-                setTimeout(function() {
-                    if (audioPlayerWin && !audioPlayerWin.closed) {
-                        audioPlayerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
-                    }
-                }, 1500);
-            }
-        }
+        // 已整合：音频走 /audio-player，视频走 /player，同一个窗口
+        openPlayer('/audio-player');
     }
 
     var settingsWin = null;
@@ -441,7 +431,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 alert('会话未注册，请刷新页面');
                 return;
             }
-            var qrUrl = 'http://' + data.qrServerAddr + '/m/' + mySessionId;
+            // 内置=与主程序同IP同端口；外接=外接二维码服务器地址
+            var qrBase = data.qrUrlBase || ('http://' + data.qrServerAddr);
+            var qrUrl = qrBase + '/m/' + mySessionId;
             var qrImgUrl = '/api/qr/image?url=' + encodeURIComponent(qrUrl);
             document.getElementById('qrModal').style.display = 'flex';
             document.getElementById('qrImage').src = qrImgUrl;
@@ -479,25 +471,19 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function ensurePlayer(isAudio) {
-        // 音乐模式下，视频文件也用音频播放器
-        if(isAudio || isMusicMode()){
-            if(!audioPlayerWin || audioPlayerWin.closed){
-                openAudioPlayer();
-                return false;
-            }
-            return true;
-        } else {
-            if(!playerWin || playerWin.closed){
-                openPlayer();
-                return false;
-            }
-            return true;
+        // 已整合：音频走 /audio-player，视频走 /player，同一个窗口（ktvPlayer）
+        // 仅在窗口未开时打开；页面切换由 playQueueItem 通过 URL 参数完成
+        if(!playerWin || playerWin.closed){
+            var targetPage = isAudio ? '/audio-player' : '/player';
+            openPlayer(targetPage);
+            return false;
         }
+        return true;
     }
 
     function getActivePlayerWin(item) {
-        var isAudio = isAudioFile(item.name);
-        return (isAudio || isMusicMode()) ? audioPlayerWin : playerWin;
+        // 已整合：始终返回 playerWin
+        return playerWin;
     }
 
     function switchTrack(trackIndex){
@@ -533,7 +519,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         queue.push(queueItem);
         renderQueue();
         saveQueueToStorage();
-        var isAudio = isAudioFile(name);
+        var isAudio = isAudioFile(name) || isMusicMode();
         ensurePlayer(isAudio);
         checkAndRequestTranscode(0);
         // 统计点播次数
@@ -562,7 +548,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         var newIdx = insertNext && currentPlayingIndex >= 0 ? currentPlayingIndex + 1 : queue.length - 1;
 
         if(queue.length === 1 || (currentPlayingIndex === -1)){
-            var isAudio = isAudioFile(name);
+            var isAudio = isAudioFile(name) || isMusicMode();
             ensurePlayer(isAudio);
         }
 
@@ -731,9 +717,6 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if(playerWin && !playerWin.closed){
             playerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
         }
-        if(audioPlayerWin && !audioPlayerWin.closed){
-            audioPlayerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
-        }
         // Send queue update to QR server
         fetch('/api/qr/queue-update', {
             method: 'POST',
@@ -780,8 +763,6 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             checkAndWarnTracks(item.name, item.path, idx);
         }
 
-        var win = (isAudio || isMusicMode()) ? audioPlayerWin : playerWin;
-
         // 构建播放URL
         var url;
         if(isAudio){
@@ -791,8 +772,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 url = '/file?name='+encodeURIComponent(item.path);
             }
         } else if(isMusicMode()){
-            // 音乐模式：视频文件抽取音频流
+            // 音乐模式：视频文件抽取音频流，按音频页面处理
             url = '/api/music-mode-stream?name='+encodeURIComponent(item.path)+'&trackIndex='+lastTrackIndex+'&_t='+Date.now();
+            isAudio = true;
         } else if(isStreamMode()){
             // 省流模式：使用流媒体实时转码
             url = '/api/stream?name='+encodeURIComponent(item.path)+'&trackIndex='+lastTrackIndex+'&quality=high&_t='+Date.now();
@@ -800,17 +782,47 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             url = '/file?name='+encodeURIComponent(item.path);
         }
 
-        if(!win || win.closed){
-            ensurePlayer(isAudio);
-            setTimeout(function(){
-                var w = (isAudio || isMusicMode()) ? audioPlayerWin : playerWin;
-                if(w && !w.closed){
-                    w.postMessage({action:"play",url:url,type:item.type,name:item.name,path:item.path},'*');
+        var targetPage = isAudio ? '/audio-player' : '/player';
+
+        // 判断是否需要切换页面：窗口未开/已关、当前页面不符、或页面仍在加载（刚打开）
+        var needSwitch = false;
+        if(!playerWin || playerWin.closed){
+            needSwitch = true;
+        } else {
+            var currentPath = '';
+            try {
+                currentPath = playerWin.location.pathname;
+                // 页面仍在加载（刚由 ensurePlayer 打开），用 URL 参数重定向以携带播放信息
+                if(playerWin.document && playerWin.document.readyState !== 'complete') needSwitch = true;
+            } catch(e) { needSwitch = true; }
+            if(currentPath !== targetPage) needSwitch = true;
+        }
+
+        if(needSwitch){
+            // 切换/打开页面，通过 URL 参数携带播放信息（避免 postMessage 在页面加载前丢失）
+            var openUrl = targetPage + '?playUrl=' + encodeURIComponent(url)
+                        + '&playName=' + encodeURIComponent(item.name)
+                        + '&playPath=' + encodeURIComponent(item.path);
+            if(!playerWin || playerWin.closed){
+                playerWin = window.open(openUrl, 'ktvPlayer', 'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no');
+                if(!playerWin || playerWin.closed){
+                    showPopupBlockedWarning();
                 }
-            }, 500);
+            } else {
+                playerWin.location.replace(openUrl);
+            }
+            // 1.5s 后同步队列（新页面 message listener 应已就绪）
+            setTimeout(function(){
+                if(playerWin && !playerWin.closed){
+                    playerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
+                }
+            }, 1500);
+            renderQueue();
             return;
         }
-        win.postMessage({action:"play",url:url,type:item.type,name:item.name,path:item.path},'*');
+
+        // 同页面且已就绪，直接 postMessage play
+        playerWin.postMessage({action:"play",url:url,type:item.type,name:item.name,path:item.path},'*');
         renderQueue();
     }
 
@@ -894,15 +906,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function sendToPlayer(msg){
-        var isAudio = false;
-        if(currentPlayingIndex >= 0 && currentPlayingIndex < queue.length){
-            isAudio = isAudioFile(queue[currentPlayingIndex].name);
-        } else if(msg.action === "play"){
-            isAudio = isAudioFile(msg.name);
-        }
-        var win = isAudio ? audioPlayerWin : playerWin;
-        if(win && !win.closed){
-            win.postMessage(msg,'*');
+        // 已整合：所有消息统一发送给 playerWin（其内部 iframe 会处理音频播放）
+        if(playerWin && !playerWin.closed){
+            playerWin.postMessage(msg,'*');
         }
     }
 

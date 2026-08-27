@@ -87,6 +87,7 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
 </style>
 </head>
 <body>
+<div id="fpsDisplay" style="position:fixed;top:8px;left:8px;z-index:2147483000;background:rgba(0,0,0,0.55);color:#4caf50;font:12px Consolas,monospace;padding:2px 8px;border-radius:4px;pointer-events:none;user-select:none">FPS: --</div>
 <div class="song-title" id="songTitle">等待播放...</div>
 <div class="content-area" id="contentArea">
   <div class="lyrics-container theme-smart-blue trans-zoom" id="lyricsContainer" style="display:none">
@@ -167,6 +168,7 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
   <div class="next" id="nextSong"></div>
 </div>
 <div class="fullscreen-overlay" id="fullscreenOverlay">
+  <div id="fpsDisplayFs" style="position:fixed;top:8px;left:8px;z-index:2147483000;background:rgba(0,0,0,0.55);color:#4caf50;font:12px Consolas,monospace;padding:2px 8px;border-radius:4px;pointer-events:none;user-select:none">FPS: --</div>
   <div class="content-area" id="fsContentArea">
     <div class="lyrics-container theme-smart-blue trans-zoom" id="fsLyricsContainer" style="display:none">
       <div id="fsLyrics"></div>
@@ -285,6 +287,16 @@ var cachedCanvasW = 0, cachedCanvasH = 0, cachedDpr = 1;
 var cachedBinRanges = null;
 var cachedBinRangeKey = '';
 
+// 分析器是否接入音频图（仅可视化需要；非视觉视图/暂停时断开以省FFT计算）
+var analyserEnabled = false;
+
+// 画布父容器缓存的CSS尺寸（由ResizeObserver更新，避免每帧触发布局）
+var cachedViewW = 0, cachedViewH = 0;
+
+// 频谱曲线渐变缓存
+var cachedCurveGrad = null;
+var cachedCurveGradKey = '';
+
 function ensureBuffers() {
   if (!analyser) return;
   var bins = analyser.frequencyBinCount;
@@ -328,6 +340,24 @@ function buildBinRanges(numBars, minFreq, maxFreq, binRes) {
   return ranges;
 }
 
+function setAnalyserEnabled(on) {
+  if (!audioSource || !analyser) return;
+  if (on === analyserEnabled) return;
+  analyserEnabled = on;
+  if (on) {
+    // 接入可视化分析分支：source -> analyser -> destination
+    audioSource.disconnect();
+    audioSource.connect(analyser);
+    analyser.connect(audioCtx.destination);
+  } else {
+    // 切回直连：source -> destination
+    // analyser 从图中移除，不再被拉取，生成的FFT计算开销归零，同时保证声音仍正常输出
+    analyser.disconnect();
+    audioSource.disconnect();
+    audioSource.connect(audioCtx.destination);
+  }
+}
+
 function initAudioAnalyser() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -337,12 +367,15 @@ function initAudioAnalyser() {
   analyser.minDecibels = -120;
   analyser.maxDecibels = 0;
   audioSource = audioCtx.createMediaElementSource(audio);
-  audioSource.connect(analyser);
-  analyser.connect(audioCtx.destination);
+  // 默认可视化视图，走分析分支；非视觉视图/暂停时由setView/事件自动断开
+  setAnalyserEnabled(true);
   // 初始化动态范围上限
   defaultTopDb = spectrumSettings.topDb;
   dynamicTopDb = defaultTopDb;
 }
+
+function pauseAnalyserForIdle() { setAnalyserEnabled(false); }
+function resumeAnalyserForPlay() { setAnalyserEnabled(currentView !== 'lyrics'); }
 
 function userSetView(view) {
   userSelectedView = true;
@@ -386,7 +419,11 @@ function setView(view) {
     lastWaveformFrameTime = 0;
   }
 
-  if (isVisual && analyser) { drawFrame(); }
+  setAnalyserEnabled(isVisual);
+
+  // 启动绘制前必须先取消已有循环：drawFrame 内部会递归 rAF，若直接重复调用会导致
+  // 多条 rAF 链叠加（帧率虚高 120/240/360fps、GPU/CPU 重复烧）——见实测复现
+  if (isVisual && analyser) { stopAnim(); drawFrame(); }
   else { stopAnim(); }
 
   if (isLyrics && hasLyrics) {
@@ -474,13 +511,36 @@ function setCurveStyle(val) {
   ['selCurveStyle','selCurveStyleFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.value=val;});
 }
 
+function measureCanvasSize() {
+  var canvas = isFullscreen ? document.getElementById('fullscreenCanvas') : document.getElementById('mainCanvas');
+  if (!canvas || !canvas.parentElement) return;
+  var rect = canvas.parentElement.getBoundingClientRect();
+  cachedViewW = Math.round(rect.width);
+  cachedViewH = Math.round(rect.height);
+  // 强制下一帧重建 backing（尺寸已变）
+  cachedCanvasW = 0;
+}
+
 function sizeCanvas(canvas) {
   var dpr = window.devicePixelRatio || 1;
-  var rect = canvas.parentElement.getBoundingClientRect();
-  var w = Math.round(rect.width), h = Math.round(rect.height);
+  // 性能优化：HiDPI/4K 屏幕下 dpr 可能=2/3，导致 canvas backing 像素总量爆炸（GPU 杀手）
+  // 限制 dpr 上限为 1.5，并在总像素超过阈值时进一步降采样
+  if (dpr > 1.5) dpr = 1.5;
+  // 用缓存的CSS尺寸（由ResizeObserver维护），避免每帧 getBoundingClientRect 触发同步布局
+  if (!cachedViewW || !cachedViewH) measureCanvasSize();
+  var w = cachedViewW, h = cachedViewH;
   // 仅在尺寸变化时更新canvas，避免每帧触发重绘
   var pw = Math.round(w * dpr), ph = Math.round(h * dpr);
-  if (canvas.width !== pw || canvas.height !== ph) {
+  // 压低可视化内部分辨率上限（960×540 ≈ 约 51.8万像素）：
+  // 波形/频谱是矢量条与曲线，低分辨率下显示仍清晰，栅格化开销明显降低
+  var maxPixels = 960 * 540;
+  if (pw * ph > maxPixels) {
+    var scale = Math.sqrt(maxPixels / (pw * ph));
+    pw = Math.max(1, Math.round(pw * scale));
+    ph = Math.max(1, Math.round(ph * scale));
+    dpr = pw / w;  // 实际生效 dpr
+  }
+  if (canvas.width !== pw || canvas.height !== ph || cachedCanvasW !== w || cachedCanvasH !== h) {
     canvas.width = pw;
     canvas.height = ph;
     cachedCanvasW = w; cachedCanvasH = h; cachedDpr = dpr;
@@ -489,7 +549,25 @@ function sizeCanvas(canvas) {
   return {w: w, h: h, dpr: dpr};
 }
 
-function drawFrame() {
+// FPS 帧率显示（左上角观测用）：利用 rAF 自带时间戳，每0.5秒更新，按帧率分级着色
+// 同时更新普通窗口与全屏两个显示位（全屏元素位于 fullscreenOverlay 内，body 下的会被全屏层遮挡）
+var fpsFrames = 0, fpsLastTime = 0, fpsEl = null, fpsElFs = null;
+function updateFps(timestamp) {
+  if (!fpsEl) fpsEl = document.getElementById('fpsDisplay');
+  if (!fpsElFs) fpsElFs = document.getElementById('fpsDisplayFs');
+  fpsFrames++;
+  if (timestamp - fpsLastTime >= 500) {
+    var fps = Math.round(fpsFrames * 1000 / (timestamp - fpsLastTime));
+    var color = fps >= 50 ? '#4caf50' : (fps >= 30 ? '#ffc107' : '#f44336');
+    var txt = 'FPS: ' + fps;
+    if (fpsEl) { fpsEl.textContent = txt; fpsEl.style.color = color; }
+    if (fpsElFs) { fpsElFs.textContent = txt; fpsElFs.style.color = color; }
+    fpsFrames = 0;
+    fpsLastTime = timestamp;
+  }
+}
+
+function drawFrame(timestamp) {
   if (!analyser) { animId = requestAnimationFrame(drawFrame); return; }
   ensureBuffers();
   var canvas = isFullscreen ? document.getElementById('fullscreenCanvas') : document.getElementById('mainCanvas');
@@ -500,6 +578,7 @@ function drawFrame() {
   if (currentView === 'waveform') drawWaveform(ctx, info.w, info.h);
   else if (currentView === 'spectrumbar') drawSpectrum(ctx, info.w, info.h);
   else if (currentView === 'spectrumcurve') drawSpectrumCurve(ctx, info.w, info.h);
+  updateFps(timestamp || performance.now());
   animId = requestAnimationFrame(drawFrame);
 }
 
@@ -563,11 +642,37 @@ function drawWaveform(ctx, w, h) {
   ctx.beginPath();
   var len = waveRingLen;
   if (len > 1) {
-    var sliceW = w / (len - 1);
-    for (var i = 0; i < len; i++) {
-      var v = waveRingGet(i) / 128.0;
-      var y = midY + (v - 1.0) * midY * 0.9;
-      if (i === 0) ctx.moveTo(0, y); else ctx.lineTo(i * sliceW, y);
+    // 降采样：样本数远超画布宽度时，每像素取该范围内 |v-128| 最大的样本作为代表值
+    // lineTo 调用数从 len 降到 ~w（画布宽度），GPU 命令数大幅减少
+    var displayPoints = Math.min(w, len);
+    // 计算第一个样本的物理索引（避免循环内每样本都取模）
+    var startPhys = (waveRingHead - waveRingLen + waveRingCap * 2) % waveRingCap;
+    if (len > w * 2) {
+      var samplesPerPixel = len / displayPoints;
+      var xStep = w / (displayPoints - 1);
+      for (var i = 0; i < displayPoints; i++) {
+        var s = Math.floor(i * samplesPerPixel);
+        var e = Math.min(Math.floor((i + 1) * samplesPerPixel), len);
+        var maxDev = -1, repV = 128;
+        for (var j = s; j < e; j++) {
+          var pi = startPhys + j;
+          if (pi >= waveRingCap) pi -= waveRingCap;
+          var v = waveRingBuf[pi];
+          var dev = v < 128 ? 128 - v : v - 128;
+          if (dev > maxDev) { maxDev = dev; repV = v; }
+        }
+        var y = midY + (repV / 128.0 - 1.0) * midY * 0.9;
+        if (i === 0) ctx.moveTo(0, y); else ctx.lineTo(i * xStep, y);
+      }
+    } else {
+      var sliceW = w / (len - 1);
+      for (var i = 0; i < len; i++) {
+        var pi = startPhys + i;
+        if (pi >= waveRingCap) pi -= waveRingCap;
+        var v = waveRingBuf[pi] / 128.0;
+        var y = midY + (v - 1.0) * midY * 0.9;
+        if (i === 0) ctx.moveTo(0, y); else ctx.lineTo(i * sliceW, y);
+      }
     }
   }
   ctx.stroke();
@@ -655,7 +760,7 @@ function drawSpectrum(ctx, w, h) {
     }
   }
 
-  // 计算颜色
+  // 计算颜色（恢复原始：每帧重算，峰值着色与颜色选择即时生效）
   if (peakColoring) {
     // 排名着色：先收集非低频条索引，按高度排序
     var rankedIdx = [];
@@ -782,11 +887,15 @@ function drawSpectrumCurve(ctx, w, h) {
   ctx.lineTo(pointsBuf[numBars-1].x, drawH);
   ctx.lineTo(pointsBuf[0].x, drawH);
   ctx.closePath();
-  var grad = ctx.createLinearGradient(0, 0, 0, drawH);
-  var r = spectrumColor[0], g = spectrumColor[1], b = spectrumColor[2];
-  grad.addColorStop(0, 'rgba('+r+','+g+','+b+',0.4)');
-  grad.addColorStop(1, 'rgba('+r+','+g+','+b+',0.02)');
-  ctx.fillStyle = grad;
+  var gradKey = drawH + '|' + spectrumColor[0]+','+spectrumColor[1]+','+spectrumColor[2];
+  if (!cachedCurveGrad || cachedCurveGradKey !== gradKey) {
+    cachedCurveGrad = ctx.createLinearGradient(0, 0, 0, drawH);
+    var r = spectrumColor[0], g = spectrumColor[1], b = spectrumColor[2];
+    cachedCurveGrad.addColorStop(0, 'rgba('+r+','+g+','+b+',0.4)');
+    cachedCurveGrad.addColorStop(1, 'rgba('+r+','+g+','+b+',0.02)');
+    cachedCurveGradKey = gradKey;
+  }
+  ctx.fillStyle = cachedCurveGrad;
   ctx.fill();
 
   // 绘制曲线线条
@@ -834,6 +943,7 @@ function toggleFullscreen() {
     isFullscreen = true;
     document.getElementById('fullscreenOverlay').style.display = 'flex';
     if (currentView === 'lyrics' && hasLyrics) syncLyricsToFullscreen();
+    measureCanvasSize();
     setView(currentView);
     setTimeout(autoScaleLyricsFont, 50);
     try { document.getElementById('fullscreenOverlay').requestFullscreen(); } catch(e){}
@@ -1053,7 +1163,7 @@ function playAudio(url, name, path) {
     }
     updateLyrics();
   };
-  audio.onended = function() { stopAnim(); if(window.opener&&!window.opener.closed) window.opener.postMessage({action:"ended"},"*"); };
+  audio.onended = function() { stopAnim(); if(window.opener&&!window.opener.closed) window.opener.postMessage({action:"ended"},"*"); else if(window.parent&&window.parent!==window) window.parent.postMessage({action:"ended"},"*"); };
   audio.onerror = function() { stopAnim(); };
 
   showTip("正在播放：" + name);
@@ -1074,9 +1184,25 @@ function updateNextSongDisplay() {
   document.getElementById('nextSong').textContent = nextItem ? '下一首：' + nextItem.name : '下一首：暂无';
 }
 
+// 暂停时断开分析器以省FFT计算；恢复播放时按当前视图决定是否重连（非歌词视图才需要）
+audio.addEventListener('pause', function(){ pauseAnalyserForIdle(); });
+audio.addEventListener('play', function(){ resumeAnalyserForPlay(); });
+
+// 监听画布父容器尺寸变化（仅在实际变化时重新测量，替代每帧 getBoundingClientRect）
+measureCanvasSize();
+[document.getElementById('mainCanvas'), document.getElementById('fullscreenCanvas')]
+  .forEach(function(canvas){ if (canvas && canvas.parentElement) {
+    if (window.ResizeObserver) {
+      new ResizeObserver(function(){ measureCanvasSize(); }).observe(canvas.parentElement);
+    } else {
+      window.addEventListener('resize', function(){ measureCanvasSize(); });
+    }
+  }});
+
 window.addEventListener("message", function(e) {
   if (e.data.action === "play") playAudio(e.data.url, e.data.name, e.data.path);
   else if (e.data.action === "syncQueue") { currentQueue=e.data.list; currentPlayingIndex=e.data.currentPlayingIndex!==undefined?e.data.currentPlayingIndex:-1; updateNextSongDisplay(); }
+  else if (e.data.action === "stopAnim") { stopAnim(); }  // 父窗口切到视频模式时通知停止可视化
 });
 
 document.onkeydown = function(e) {
@@ -1086,6 +1212,21 @@ document.onkeydown = function(e) {
 };
 
 window.addEventListener('resize', function() { spectrumPeakData=[]; spectrumPeakTimes=[]; autoScaleLyricsFont(); });
+
+// 启动时检查 URL 参数，自动播放（主页面切歌时通过 URL 参数携带播放信息）
+window.addEventListener('load', function() {
+  var urlParams = new URLSearchParams(window.location.search);
+  var autoPlayUrl = urlParams.get('playUrl');
+  if (autoPlayUrl) {
+    var autoPlayName = urlParams.get('playName') || '';
+    var autoPlayPath = urlParams.get('playPath') || '';
+    // 清除 URL 参数，避免刷新时重复播放
+    history.replaceState(null, '', location.pathname);
+    setTimeout(function() {
+      playAudio(autoPlayUrl, autoPlayName, autoPlayPath);
+    }, 100);
+  }
+});
 </script>
 </body>
 </html>

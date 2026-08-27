@@ -140,7 +140,8 @@ func startServer() error {
 	// 初始化QR配置并注册路由
 	initQRConfig()
 	registerQRHandlers()
-	go startQRClient()
+	qrSetupMode() // 按模式分发回复并注册内置/外接路由
+	go startQRClient() // 仅外接模式启动客户端连接
 
 	http.HandleFunc("/", IndexHandler)
 		http.HandleFunc("/player", PlayerHandler)

@@ -67,9 +67,31 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
         </div>
 
         <div class="form-group">
+            <label for="qrMode">二维码服务器类型</label>
+            <select id="qrMode" onchange="updateQRMode()">
+                <option value="internal">内置（随本程序运行，共用IP和端口）</option>
+                <option value="external">外接（使用独立二维码服务器）</option>
+            </select>
+            <div class="hint" id="qrModeHint"></div>
+        </div>
+
+        <div class="form-group" id="intQRNotice">
+            <label>内置服务器说明</label>
+            <div class="hint" style="line-height:1.7">
+                ◆ 内置模式把二维码服务器直接集成到本程序，<b>与主服务器共用同一个IP和端口</b>，无需另跑程序、无需开额外端口。<br>
+                ◆ 适用场景：<b>手机与点歌电脑在同一个局域网内</b>（店内、家里内网扫码点歌），扫码即可直接访问。<br>
+                ◆ 由于共用主服务器端口，异地（公网）扫码可能受网络/端口限制，无法保证访问成功。
+            </div>
+        </div>
+
+        <div class="form-group" id="extQRGroup">
             <label for="qrServerAddr">二维码服务器地址</label>
             <input type="text" id="qrServerAddr" placeholder="例如：123.45.67.89:8352">
-            <div class="hint">公网服务器的IP:端口，QR服务程序运行的地址</div>
+            <div class="hint" style="line-height:1.7">
+                ◆ 外接模式需要<b>自行部署并运行</b>独立的二维码服务器（项目内附带的 qrserver 程序），地址填写该服务器的 IP:端口。<br>
+                ◆ 适用场景：手机与点歌电脑<b>不在同一局域网</b>，需要通过公网远程扫码点歌。<br>
+                <b style="color:#f0ad4e">⚠ 重要：选择外接时，必须自行保证扫码端（手机）能访问到你所填写的外接二维码服务器——该服务器必须有公网IP，或已通过端口映射/内网穿透公开到公网；否则手机扫码将打不开点歌页面。</b>
+            </div>
         </div>
 
         <div class="form-group">
@@ -87,6 +109,22 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
     </div>
 
     <script>
+        function updateQRMode() {
+            var mode = document.getElementById('qrMode').value;
+            var intNotice = document.getElementById('intQRNotice');
+            var extGroup = document.getElementById('extQRGroup');
+            var hint = document.getElementById('qrModeHint');
+            if (mode === 'internal') {
+                intNotice.style.display = 'block';
+                extGroup.style.display = 'none';
+                hint.textContent = '已选内置：手机扫码走本程序同IP同端口，适合局域网内点歌。';
+            } else {
+                intNotice.style.display = 'none';
+                extGroup.style.display = 'block';
+                hint.textContent = '已选外接：请填写外部二维码服务器地址，并确保手机能访问到它。';
+            }
+        }
+
         function loadSettings() {
             var xhr = new XMLHttpRequest();
             xhr.open('GET', '/api/config', true);
@@ -96,8 +134,10 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
                     document.getElementById('mediaDirs').value = config.mediaDirs.join('\n');
                     document.getElementById('port').value = config.port;
                     document.getElementById('qrEnabled').value = config.qrEnabled ? 'true' : 'false';
+                    document.getElementById('qrMode').value = config.qrMode === 'internal' ? 'internal' : 'external';
                     document.getElementById('qrServerAddr').value = config.qrServerAddr || '';
                     document.getElementById('qrPassword').value = config.qrPassword || '';
+                    updateQRMode();
                 }
             };
             xhr.send();
@@ -117,6 +157,7 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
                 mediaDirs: mediaDirs,
                 port: port,
                 qrEnabled: document.getElementById('qrEnabled').value === 'true',
+                qrMode: document.getElementById('qrMode').value,
                 qrServerAddr: document.getElementById('qrServerAddr').value.trim(),
                 qrPassword: document.getElementById('qrPassword').value
             };
