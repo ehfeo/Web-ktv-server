@@ -70,8 +70,8 @@ body {
 .tab-bar::-webkit-scrollbar { display: none; }
 .tab-item {
   flex: 1;
-  min-width: 60px;
-  padding: 12px 4px;
+  min-width: 0;
+  padding: 12px 2px;
   text-align: center;
   font-size: 14px;
   font-weight: bold;
@@ -303,6 +303,72 @@ body {
 .toast.show { opacity: 1; }
 .toast.error { background: rgba(140, 40, 60, 0.95); }
 .toast.success { background: rgba(40, 120, 80, 0.95); }
+/* 遥控 */
+.remote-denied {
+  margin: 20px 16px;
+  padding: 24px 18px;
+  background: rgba(140, 60, 60, 0.4);
+  border: 1px solid rgba(200, 90, 90, 0.5);
+  border-radius: 12px;
+  color: #ffc0c0;
+  font-size: 15px;
+  text-align: center;
+  line-height: 1.6;
+}
+.remote-hint {
+  margin: 14px 16px 6px;
+  color: #8888cc;
+  font-size: 12px;
+  text-align: center;
+}
+.remote-btns {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 14px 16px;
+  flex-wrap: wrap;
+}
+.rbtn {
+  flex: 1;
+  min-width: 90px;
+  padding: 16px 10px;
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 15px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.rbtn:active { opacity: 0.8; }
+.rbtn-primary { background: linear-gradient(135deg, #e04060, #ff6080); }
+.rbtn-secondary { background: linear-gradient(135deg, #5050cc, #7070ff); }
+.rbtn-seek { background: linear-gradient(135deg, #cc7a22, #ffa040); }
+.rbtn-track { background: linear-gradient(135deg, #2a7a5a, #3fae7c); }
+.remote-seek {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 6px 16px 14px;
+}
+.track-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 6px 16px 14px;
+  flex-wrap: wrap;
+}
+.volume-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  margin: 6px 16px 0;
+  background: rgba(30, 30, 80, 0.5);
+  border-radius: 10px;
+}
+.vol-label { color: #a0a0ff; font-size: 14px; white-space: nowrap; }
+.volume-row input[type=range] { flex: 1; accent-color: #7070ff; }
+.vol-num { color: #d0d0ff; font-size: 14px; width: 36px; text-align: right; }
 </style>
 </head>
 <body>
@@ -321,6 +387,7 @@ body {
   <div class="tab-item" onclick="switchTab('category')" id="tabCategory">曲种</div>
   <div class="tab-item" onclick="switchTab('hot')" id="tabHot">热播</div>
   <div class="tab-item" onclick="switchTab('queue')" id="tabQueue">队列</div>
+  <div class="tab-item" onclick="switchTab('remote')" id="tabRemote">遥控</div>
 </div>
 
 <!-- 搜索面板 -->
@@ -393,6 +460,28 @@ body {
   </div>
 </div>
 
+<!-- 遥控面板 -->
+<div class="tab-panel" id="panelRemote">
+  <div class="remote-denied" id="remoteDenied">主控端未开启手机遥控权限，无法进行播放控制</div>
+  <div id="remoteControls" style="display:none">
+    <div class="remote-hint">使用遥控功能，请先确认主控端已开启“允许手机遥控”。</div>
+    <div class="remote-btns">
+      <button class="rbtn rbtn-primary" onclick="sendControl('next')">切歌</button>
+      <button class="rbtn rbtn-secondary" onclick="sendControl('togglePause')">播放/暂停</button>
+      <button class="rbtn rbtn-secondary" onclick="sendControl('restart')">重唱</button>
+    </div>
+    <div class="remote-seek">
+      <button class="rbtn rbtn-seek" onclick="sendControl('seek')">快进10秒</button>
+    </div>
+    <div class="track-row" id="trackRow"></div>
+    <div class="volume-row">
+      <span class="vol-label">音量</span>
+      <input type="range" id="remoteVolume" min="0" max="100" value="100" oninput="onVolumeChange(this.value)">
+      <span class="vol-num" id="remoteVolNum">100</span>
+    </div>
+  </div>
+</div>
+
 <!-- 密码弹窗 -->
 <div class="modal-overlay" id="passwordModal">
   <div class="modal-box">
@@ -428,6 +517,8 @@ let currentLang = '';
 let catData = null;
 let currentCat = '';
 let pendingBrowseID = null;
+let ctrlEnabled = false;         // 主控端是否开放手机遥控权限
+let lastSentVolume = null;       // 最近发送的音量，避免重复指令
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -463,6 +554,12 @@ function connect() {
       case 'browseResult':
         handleBrowseResult(msg);
         break;
+      case 'controlState':
+        handleControlState(msg);
+        break;
+      case 'controlDenied':
+        showToast(msg.message || '主控端未开启手机遥控权限', 'error');
+        break;
       case 'error':
         showToast(msg.message, 'error');
         break;
@@ -484,7 +581,7 @@ function sendMsg(obj) {
 
 // ==================== 标签切换 ====================
 function switchTab(tab) {
-  var tabs = ['search','singer','language','category','hot','queue'];
+  var tabs = ['search','singer','language','category','hot','queue','remote'];
   for (var i = 0; i < tabs.length; i++) {
     var t = tabs[i];
     document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).className = 'tab-item' + (t === tab ? ' active' : '');
@@ -495,6 +592,70 @@ function switchTab(tab) {
   if (tab === 'language' && !langData) browseLangIndex();
   if (tab === 'category' && !catData) browseCatIndex();
   if (tab === 'hot') browseHotSongs(1);
+}
+
+// ==================== 遥控 ====================
+// 更新遥控面板显示：根据主控端权限决定显示控制按钮还是提示
+function handleControlState(msg) {
+  ctrlEnabled = !!msg.ctrlEnabled;
+  var denied = document.getElementById('remoteDenied');
+  var ctrl = document.getElementById('remoteControls');
+  var trackRow = document.getElementById('trackRow');
+  if (ctrlEnabled) {
+    denied.style.display = 'none';
+    ctrl.style.display = 'block';
+    // 根据音轨模式动态生成音轨/声道按钮
+    var mode = msg.trackMode || 'track';
+    var channels = msg.channelCount || 2;
+    trackRow.innerHTML = '';
+    var btns = [];
+    if (mode === 'channel' && channels >= 2) {
+      btns = [
+        { idx: 0, text: '立体声' },
+        { idx: 1, text: '左声道' },
+        { idx: 2, text: '右声道' }
+      ];
+    } else {
+      btns = [
+        { idx: 0, text: '原唱' },
+        { idx: 1, text: '伴奏' }
+      ];
+    }
+    var html = '';
+    btns.forEach(function(b) {
+      html += '<button class="rbtn rbtn-track" onclick="sendControl(\'track\', ' + b.idx + ')">' + b.text + '</button>';
+    });
+    trackRow.innerHTML = html;
+  } else {
+    denied.style.display = 'block';
+    ctrl.style.display = 'none';
+    trackRow.innerHTML = '';
+    showToast('主控端未开启手机遥控权限', 'error');
+  }
+}
+
+// 下发遥控指令：切歌/播放暂停/重唱/快进/音轨切换
+function sendControl(action, value) {
+  if (!ctrlEnabled) {
+    showToast('主控端未开启手机遥控权限', 'error');
+    return;
+  }
+  if (action === 'track') {
+    sendMsg({ type: 'control', action: 'track', value: value });
+    return;
+  }
+  sendMsg({ type: 'control', action: action });
+  var tip = action === 'next' ? '切歌' : (action === 'restart' ? '重唱' : (action === 'seek' ? '快进10秒' : '播放/暂停'));
+  showToast('已发送：' + tip, 'success');
+}
+
+// 音量调节：拖动滑块时实时下发，并限制发送频率
+function onVolumeChange(val) {
+  document.getElementById('remoteVolNum').textContent = val;
+  if (lastSentVolume !== null && Math.abs(val - lastSentVolume) < 3) return;
+  if (!ctrlEnabled) return;
+  lastSentVolume = val;
+  sendMsg({ type: 'control', action: 'volume', value: parseInt(val, 10) });
 }
 
 // ==================== 搜索 ====================

@@ -248,6 +248,9 @@ var hasLyrics = false;
 var audioCtx = null;
 var analyser = null;
 var audioSource = null;
+var splitter = null;          // 左/右声道路由分路器
+var merger = null;            // 左/右声道路由合路器
+var channelMode = 'stereo';   // stereo / left / right
 var animId = null;
 var currentView = 'waveform';
 var userSelectedView = false; // 用户是否手动选择过视图
@@ -345,16 +348,52 @@ function setAnalyserEnabled(on) {
   if (on === analyserEnabled) return;
   analyserEnabled = on;
   if (on) {
-    // 接入可视化分析分支：source -> analyser -> destination
-    audioSource.disconnect();
+    // 接入可视化分析分支（仅做FFT取数，不重复输出声音）：
+    // source -> analyser（analyser 不接到 destination，声音走 splitter/merger 路由分支）
     audioSource.connect(analyser);
-    analyser.connect(audioCtx.destination);
   } else {
-    // 切回直连：source -> destination
-    // analyser 从图中移除，不再被拉取，生成的FFT计算开销归零，同时保证声音仍正常输出
+    // 将 analyser 从图中移除，生成的FFT计算开销归零；声音仍通过 splitter/merger 正常输出
     analyser.disconnect();
-    audioSource.disconnect();
-    audioSource.connect(audioCtx.destination);
+  }
+}
+
+// 重建声道路由分支：source -> splitter -> merger -> destination
+// mode: stereo(立体声) / left(左声道) / right(右声道)
+function rebuildChannelRouting(mode) {
+  if (!audioCtx || !splitter || !merger) return false;
+  // 先断开 splitter 的所有输出
+  splitter.disconnect();
+  if (mode === 'left') {
+    // 左声道：只取 ch0，路由到左、右两个扬声器
+    splitter.connect(merger, 0, 0);
+    splitter.connect(merger, 0, 1);
+  } else if (mode === 'right') {
+    // 右声道：只取 ch1，路由到左、右两个扬声器
+    splitter.connect(merger, 1, 0);
+    splitter.connect(merger, 1, 1);
+  } else {
+    // 立体声：ch0->L, ch1->R
+    splitter.connect(merger, 0, 0);
+    splitter.connect(merger, 1, 1);
+  }
+  channelMode = mode;
+  return true;
+}
+
+// 手机遥控：音轨/声道切换；单音轨音频固定为声道模式（立体声/左/右）
+function switchTrack(sourceIdx) {
+  if (sourceIdx === 0) { rebuildChannelRouting('stereo'); showTip('立体声'); }
+  else if (sourceIdx === 1) { rebuildChannelRouting('left'); showTip('左声道'); }
+  else if (sourceIdx === 2) { rebuildChannelRouting('right'); showTip('右声道'); }
+  else return;
+  // 通知主控端当前模式，保持所有端一致（音频固定 channel 模式）
+  postTrackMode();
+}
+
+// 向主控端上报当前音轨模式（音频文件固定为单音轨声道模式）
+function postTrackMode() {
+  if (window.opener && !window.opener.closed) {
+    window.opener.postMessage({action: "trackMode", mode: "channel", channels: 2}, "*");
   }
 }
 
@@ -367,7 +406,13 @@ function initAudioAnalyser() {
   analyser.minDecibels = -120;
   analyser.maxDecibels = 0;
   audioSource = audioCtx.createMediaElementSource(audio);
-  // 默认可视化视图，走分析分支；非视觉视图/暂停时由setView/事件自动断开
+  // 建立声道路由分支：source -> splitter(2ch) -> merger(2ch) -> destination
+  splitter = audioCtx.createChannelSplitter(2);
+  merger = audioCtx.createChannelMerger(2);
+  audioSource.connect(splitter);
+  rebuildChannelRouting('stereo');
+  merger.connect(audioCtx.destination);
+  // 默认可视化视图，接入分析分支；非视觉视图/暂停时由setView/事件自动断开
   setAnalyserEnabled(true);
   // 初始化动态范围上限
   defaultTopDb = spectrumSettings.topDb;
@@ -1150,6 +1195,9 @@ function playAudio(url, name, path) {
   audio.play().catch(function(){});
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 
+  // 上报当前音轨模式：音频文件固定为单音轨声道模式（立体声/左/右）
+  postTrackMode();
+
   // 自动切歌后必须重启可视化绘制循环：上首播完的 onended 会 stopAnim()，
   // 若此处不重启，波形/频谱画布会一直空白（手动切视图 setView 会拉起，故只有自动切歌出现）。
   if (currentView !== 'lyrics' && analyser) { stopAnim(); drawFrame(); }
@@ -1207,7 +1255,43 @@ window.addEventListener("message", function(e) {
   if (e.data.action === "play") playAudio(e.data.url, e.data.name, e.data.path);
   else if (e.data.action === "syncQueue") { currentQueue=e.data.list; currentPlayingIndex=e.data.currentPlayingIndex!==undefined?e.data.currentPlayingIndex:-1; updateNextSongDisplay(); }
   else if (e.data.action === "stopAnim") { stopAnim(); }  // 父窗口切到视频模式时通知停止可视化
+  else if (e.data.action === "togglePause") { toggleAudioPlayback(); }  // 手机遥控：播放/暂停
+  else if (e.data.action === "restart") { restartAudioPlayback(); }      // 手机遥控：重唱
+  else if (e.data.action === "setVolume") { // 手机遥控：音量
+    if (!audio) return;
+    var v = parseInt(e.data.value, 10);
+    if (isFinite(v) && v >= 0 && v <= 100) {
+      audio.volume = v/100;
+      var s = document.getElementById('volumeSlider');
+      if (s) s.value = v;
+    }
+  }
+  else if (e.data.action === "seek") { // 手机遥控：快进
+    if (!audio) return;
+    var s = parseInt(e.data.seconds, 10);
+    if (isNaN(s)) s = 10;
+    if (isFinite(audio.duration) && audio.duration > 0) {
+      audio.currentTime = Math.min(audio.currentTime + s, audio.duration - 0.5);
+    }
+  }
+  else if (e.data.action === "switchTrack") { // 手机遥控：音轨/声道（音频固定立体声/左/右）
+    switchTrack(parseInt(e.data.index, 10));
+  }
 });
+
+// 手机遥控：播放/暂停
+function toggleAudioPlayback() {
+  if (!audio) return;
+  if (audio.paused) { audio.play().catch(function(){}); }
+  else { audio.pause(); }
+}
+
+// 手机遥控：重唱（回到开头重新播放）
+function restartAudioPlayback() {
+  if (!audio) return;
+  audio.currentTime = 0;
+  audio.play().catch(function(){});
+}
 
 document.onkeydown = function(e) {
   if (e.key === "F11") { e.preventDefault(); toggleFullscreen(); }

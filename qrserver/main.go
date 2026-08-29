@@ -82,6 +82,9 @@ type KTVMessage struct {
 	Total               int             `json:"total,omitempty"`
 	Page                int             `json:"page,omitempty"`
 	PageSize            int             `json:"pageSize,omitempty"`
+	CtrlEnabled         bool            `json:"ctrlEnabled,omitempty"`
+	TrackMode           string          `json:"trackMode,omitempty"`
+	ChannelCount        int             `json:"channelCount,omitempty"`
 }
 
 // QR Server → KTV 消息
@@ -99,6 +102,8 @@ type KTVOutMessage struct {
 	Singer    string `json:"singer,omitempty"`
 	Language  string `json:"language,omitempty"`
 	Category  string `json:"category,omitempty"`
+	Action    string `json:"action,omitempty"` // 遥控指令：next/restart/togglePause/volume
+	Value     int    `json:"value,omitempty"`  // 遥控附加数值（如音量0-100）
 }
 
 // Mobile → QR Server 消息
@@ -114,6 +119,8 @@ type MobileMessage struct {
 	Singer   string `json:"singer,omitempty"`
 	Language string `json:"language,omitempty"`
 	Category string `json:"category,omitempty"`
+	Action   string `json:"action,omitempty"` // 遥控指令
+	Value    int    `json:"value,omitempty"`  // 遥控附加数值
 }
 
 // QR Server → Mobile 消息
@@ -129,6 +136,9 @@ type MobileOutMessage struct {
 	PageSize            int             `json:"pageSize,omitempty"`
 	Data                json.RawMessage `json:"data,omitempty"`
 	RequestID           string          `json:"requestId,omitempty"`
+	CtrlEnabled         bool            `json:"ctrlEnabled,omitempty"`
+	TrackMode           string          `json:"trackMode,omitempty"`
+	ChannelCount        int             `json:"channelCount,omitempty"`
 }
 
 // ==================== 会话管理 ====================
@@ -368,10 +378,56 @@ func (s *Server) handleKTV(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+		case "controlState":
+			// KTV回复遥控权限状态，广播给对应会话的所有手机
+			sid := km.SessionID
+			if sid == "" {
+				continue
+			}
+			sess := s.getSession(sid)
+			if sess != nil {
+				outMsg := MobileOutMessage{Type: "controlState", CtrlEnabled: km.CtrlEnabled, TrackMode: km.TrackMode, ChannelCount: km.ChannelCount}
+				sendToSessionMobiles(sess, outMsg)
+			}
+
+		case "broadcastControlState":
+			// KTV通知遥控权限变更：重新向各活跃会话询问最新状态
+			ktv.mu.Lock()
+			sessions := make([]*Session, 0, len(ktv.sessions))
+			for _, s := range ktv.sessions {
+				sessions = append(sessions, s)
+			}
+			ktv.mu.Unlock()
+			for _, s := range sessions {
+				s.mu.Lock()
+				hasMobile := len(s.mobiles) > 0
+				kc := s.ktvConn
+				s.mu.Unlock()
+				if hasMobile && kc != nil {
+					reqMsg := KTVOutMessage{Type: "requestControlState", SessionID: s.sessionID}
+					data, _ := json.Marshal(reqMsg)
+					if err := kc.WriteMessage(websocket.TextMessage, data); err != nil {
+						log.Printf("请求KTV遥控权限失败: %v", err)
+					}
+				}
+			}
+
 		default:
 			log.Printf("KTV未知消息类型: %s", km.Type)
 		}
 	}
+}
+
+// sendToSessionMobiles 向会话下所有手机连接发送消息
+func sendToSessionMobiles(sess *Session, outMsg MobileOutMessage) {
+	data, _ := json.Marshal(outMsg)
+	sess.mu.Lock()
+	for mobileConn := range sess.mobiles {
+		if err := mobileConn.WriteMessage(websocket.TextMessage, data); err != nil {
+			log.Printf("广播消息到移动端失败: %v", err)
+		}
+	}
+	sess.mu.Unlock()
 }
 
 // ==================== Mobile WebSocket 处理 ====================
@@ -428,6 +484,15 @@ func (s *Server) handleMobile(w http.ResponseWriter, r *http.Request) {
 		data, _ := json.Marshal(reqMsg)
 		if err := ktvConn.WriteMessage(websocket.TextMessage, data); err != nil {
 			log.Printf("请求KTV队列失败: %v", err)
+		}
+	}
+
+	// 向KTV询问遥控权限状态，用于手机端“遥控”标签页显示权限提示
+	if ktvConn != nil {
+		reqMsg := KTVOutMessage{Type: "requestControlState", SessionID: sessionID}
+		data, _ := json.Marshal(reqMsg)
+		if err := ktvConn.WriteMessage(websocket.TextMessage, data); err != nil {
+			log.Printf("请求KTV遥控权限失败: %v", err)
 		}
 	}
 
@@ -544,6 +609,28 @@ func (s *Server) handleMobile(w http.ResponseWriter, r *http.Request) {
 			if err := ktvConn.WriteMessage(websocket.TextMessage, data); err != nil {
 				log.Printf("转发浏览请求到KTV失败: %v", err)
 				s.consumePendingSearch(requestID)
+				sendMobileError(conn, "KTV服务连接异常")
+			}
+
+		case "control":
+			// 手机遥控指令：切歌/播放暂停/重唱/音量，转发给KTV侧执行
+			if hasPassword && !isAuthed {
+				sendMobileError(conn, "请先输入密码")
+				continue
+			}
+			if ktvConn == nil {
+				sendMobileError(conn, "KTV服务未连接")
+				continue
+			}
+			outMsg := KTVOutMessage{
+				Type:      "control",
+				SessionID: sessionID,
+				Action:    mm.Action,
+				Value:     mm.Value,
+			}
+			data, _ := json.Marshal(outMsg)
+			if err := ktvConn.WriteMessage(websocket.TextMessage, data); err != nil {
+				log.Printf("转发遥控指令到KTV失败: %v", err)
 				sendMobileError(conn, "KTV服务连接异常")
 			}
 

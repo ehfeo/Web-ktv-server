@@ -65,6 +65,7 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QRServerAddr string   `json:"qrServerAddr"`
 			QRPassword   string   `json:"qrPassword"`
 			QRMode       string   `json:"qrMode"`
+			QRCtrlEnabled bool    `json:"qrCtrlEnabled"`
 		}{
 			MediaDirs:    mediaDirs,
 			Port:         port,
@@ -72,6 +73,7 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QRServerAddr: qrServerAddr,
 			QRPassword:   qrPassword,
 			QRMode:       qrMode,
+			QRCtrlEnabled: qrCtrlEnabled,
 		}
 		json.NewEncoder(w).Encode(result)
 		return
@@ -91,6 +93,7 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QRServerAddr string   `json:"qrServerAddr"`
 			QRPassword   string   `json:"qrPassword"`
 			QRMode       string   `json:"qrMode"`
+			QRCtrlEnabled bool    `json:"qrCtrlEnabled"`
 		}
 
 		if err := json.Unmarshal(data, &config); err != nil {
@@ -107,6 +110,7 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 		qrEnabled = config.QREnabled
 		qrServerAddr = config.QRServerAddr
 		qrPassword = config.QRPassword
+		qrCtrlEnabled = config.QRCtrlEnabled
 		if config.QRMode == "internal" {
 			qrMode = "internal"
 		} else if config.QRMode == "external" {
@@ -117,6 +121,9 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 		saveConfig()
 		saveQRConfig()
+
+		// 遥控权限可能已变化，向所有已连接手机推送最新状态
+		broadcastQRControlState()
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"success": true}`))

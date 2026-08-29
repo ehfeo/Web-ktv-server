@@ -368,6 +368,11 @@ function updateTrackButtons() {
   }
 
   updateButtonStates(lastTrackIndex);
+
+  // 向主控端上报当前音轨模式，便于手机端遥控显示对应按钮（原唱/伴奏 或 立体声/左/右）
+  if (window.opener && !window.opener.closed) {
+    window.opener.postMessage({action: "trackMode", mode: trackMode, channels: mediaAudioChannels}, "*");
+  }
 }
 
 function updateButtonStates(activeIdx) {
@@ -831,6 +836,25 @@ window.addEventListener("message", function(e) {
       updatePlayerQR();
     }
     updateNextSongDisplay();
+  } else if (data.action === "togglePause") {
+    // 手机遥控：播放/暂停
+    if (video) { if (video.paused) video.play(); else video.pause(); }
+  } else if (data.action === "restart") {
+    // 手机遥控：重唱
+    if (video) { video.currentTime = 0; video.play(); }
+  } else if (data.action === "setVolume") {
+    // 手机遥控：音量
+    if (video) {
+      var v = parseInt(data.value, 10);
+      if (isFinite(v) && v >= 0 && v <= 100) { video.volume = v/100; lastVolume = v/100; }
+    }
+  } else if (data.action === "seek") {
+    // 手机遥控：快进
+    if (video && isFinite(video.duration) && video.duration > 0) {
+      var s = parseInt(data.seconds, 10);
+      if (isNaN(s)) s = 10;
+      video.currentTime = Math.min(video.currentTime + s, video.duration - 0.5);
+    }
   }
 });
 

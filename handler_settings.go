@@ -99,6 +99,15 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
             <input type="text" id="qrPassword" placeholder="手机扫码后需要输入的密码（留空则无需密码）">
             <div class="hint">手机扫码点歌时需要输入此密码验证，防止陌生人点歌</div>
         </div>
+
+        <div class="form-group">
+            <label>允许手机遥控</label>
+            <label class="switch-row">
+                <input type="checkbox" id="qrCtrlEnabled">
+                <span>允许手机端远程控制播放（切歌 / 播放暂停 / 重唱 / 音量）</span>
+            </label>
+            <div class="hint">开启后，手机扫码点歌页的“遥控”标签页可操控主控端播放。为防止他人捣乱，建议仅在需要时开启；关闭后手机端会提示“主控端未开启手机遥控权限”。</div>
+        </div>
         
         <div class="btn-group">
             <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
@@ -137,6 +146,7 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
                     document.getElementById('qrMode').value = config.qrMode === 'internal' ? 'internal' : 'external';
                     document.getElementById('qrServerAddr').value = config.qrServerAddr || '';
                     document.getElementById('qrPassword').value = config.qrPassword || '';
+                    document.getElementById('qrCtrlEnabled').checked = !!config.qrCtrlEnabled;
                     updateQRMode();
                 }
             };
@@ -159,7 +169,8 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
                 qrEnabled: document.getElementById('qrEnabled').value === 'true',
                 qrMode: document.getElementById('qrMode').value,
                 qrServerAddr: document.getElementById('qrServerAddr').value.trim(),
-                qrPassword: document.getElementById('qrPassword').value
+                qrPassword: document.getElementById('qrPassword').value,
+                qrCtrlEnabled: document.getElementById('qrCtrlEnabled').checked
             };
             
             var xhr = new XMLHttpRequest();

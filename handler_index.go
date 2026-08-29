@@ -463,7 +463,51 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                     });
                 }
             });
+            // 轮询手机端下发的遥控指令（切歌/重唱/播放暂停/音量）并执行
+            fetch('/api/qr/control?sessionId=' + encodeURIComponent(mySessionId)).then(r=>r.json()).then(data => {
+                if (data && data.controls && data.controls.length > 0) {
+                    data.controls.forEach(function(cmd) {
+                        executeRemoteControl(cmd);
+                    });
+                }
+            }).catch(function(){});
         }, 2000);
+    }
+
+    // 执行手机端遥控指令
+    function executeRemoteControl(cmd) {
+        var action = cmd.action;
+        if (action === 'next') {
+            nextSong();
+        } else if (action === 'restart') {
+            if (playerWin && !playerWin.closed) {
+                playerWin.postMessage({action:"restart"},'*');
+            }
+        } else if (action === 'togglePause') {
+            if (playerWin && !playerWin.closed) {
+                playerWin.postMessage({action:"togglePause"},'*');
+            }
+        } else if (action === 'volume') {
+            var v = parseInt(cmd.value, 10);
+            if (isFinite(v) && v >= 0 && v <= 100 && playerWin && !playerWin.closed) {
+                // 更新本页音量滑块显示
+                var volSlider = document.getElementById('volumeSlider');
+                if (volSlider) volSlider.value = v;
+                playerWin.postMessage({action:"setVolume", value:v},'*');
+            }
+        } else if (action === 'seek') {
+            // 快进10秒
+            var secs = cmd.value ? parseInt(cmd.value,10) : 10;
+            if (playerWin && !playerWin.closed) {
+                playerWin.postMessage({action:"seek", seconds:secs},'*');
+            }
+        } else if (action === 'track') {
+            // 音轨/声道切换（原唱/伴奏 或 立体声/左/右），index 0/1/2
+            var idx = parseInt(cmd.value, 10);
+            if (!isNaN(idx) && playerWin && !playerWin.closed) {
+                playerWin.postMessage({action:"switchTrack", index:idx},'*');
+            }
+        }
     }
 
     function stopQRPoll() {
@@ -1080,6 +1124,15 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         } else if(e.data.action==="switchTrack"){
             // 播放器页面切换音轨（省流模式下由播放器发起）
             switchTrack(e.data.index);
+        } else if(e.data.action==="trackMode"){
+            // 播放器上报当前音轨模式（track/channel）与声道数，转发给手机端遥控显示对应按钮
+            var tMode = e.data.mode || 'track';
+            var tCh = parseInt(e.data.channels, 10);
+            if (isNaN(tCh) || tCh <= 0) tCh = 2;
+            var qs = '/api/qr/track-state?mode=' + encodeURIComponent(tMode) + '&channels=' + tCh;
+            var qxhr = new XMLHttpRequest();
+            qxhr.open('GET', qs, true);
+            qxhr.send();
         }
     });
 

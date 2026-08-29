@@ -149,6 +149,9 @@ func qrInternalMobileWSHandler(w http.ResponseWriter, r *http.Request) {
 	// 立即推送当前缓存的队列
 	qrInternalSendQueue(conn, sid)
 
+	// 推送遥控权限状态，供手机端决定是否显示遥控功能
+	qrInternalSendControlState(conn)
+
 	for {
 		_, data, err := conn.ReadMessage()
 		if err != nil {
@@ -162,7 +165,7 @@ func qrInternalMobileWSHandler(w http.ResponseWriter, r *http.Request) {
 		// 手机端消息未携带sessionId，外接模式由中继注入；内置模式此处从ws连接注入
 		msg.SessionID = sid
 		switch msg.Type {
-		case "search", "browse", "addSong", "verifyPassword":
+		case "search", "browse", "addSong", "verifyPassword", "control":
 		default:
 			continue
 		}
@@ -192,6 +195,8 @@ func qrInternalMobileWSHandler(w http.ResponseWriter, r *http.Request) {
 			handleQRBrowse(msg)
 		case "addSong":
 			handleQRAddSong(msg)
+		case "control":
+			handleQRControl(msg)
 		}
 	}
 }
@@ -210,6 +215,24 @@ func qrInternalVerifyPassword(conn *websocket.Conn, sess *qrInternalSession, msg
 		out.Message = "密码错误"
 	}
 	data, _ := json.Marshal(out)
+	conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// qrInternalSendControlState 向手机端推送遥控权限状态
+func qrInternalSendControlState(conn *websocket.Conn) {
+	if qrTrackMode == "" {
+		qrTrackMode = "track"
+	}
+	if qrChannelCnt <= 0 {
+		qrChannelCnt = 2
+	}
+	data, _ := json.Marshal(map[string]interface{}{
+		"type":           "controlState",
+		"ctrlEnabled":    qrCtrlAllowed(),
+		"passwordNeeded": qrPassword != "",
+		"trackMode":      qrTrackMode,
+		"channelCount":   qrChannelCnt,
+	})
 	conn.WriteMessage(websocket.TextMessage, data)
 }
 

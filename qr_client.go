@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,10 +19,13 @@ import (
 
 // QR客户端配置
 var (
-	qrServerAddr string // 外接二维码服务器地址，如 "123.45.67.89:8352"
-	qrPassword   string // 手机端验证密码
-	qrEnabled    bool   // 是否启用QR功能
-	qrMode       string // "internal"=内置二维码服务器 / "external"=外接，默认外接
+	qrServerAddr  string // 外接二维码服务器地址，如 "123.45.67.89:8352"
+	qrPassword    string // 手机端验证密码
+	qrEnabled     bool   // 是否启用QR功能
+	qrMode        string // "internal"=内置二维码服务器 / "external"=外接，默认外接
+	qrCtrlEnabled bool   // 是否允许手机端远程控制播放（切歌/播放暂停/重唱/音量）
+	qrTrackMode   string // 当前播放曲目的音轨模式：track(原唱/伴奏) / channel(立体声/左右声道)，默认track
+	qrChannelCnt  int    // 当前播放曲目的音频声道数（channel模式用于显示立体声/左/右按钮）
 )
 
 // qrReplyHook 分发KTV侧处理结果：
@@ -41,12 +45,22 @@ var (
 	qrQueueMutex sync.Mutex
 	qrQueueData  map[string]json.RawMessage // 按sessionId分组的队列数据
 	qrQueueIndex map[string]int             // 按sessionId分组的当前播放索引
+
+	qrControlMutex    sync.Mutex
+	qrPendingControls map[string][]qrControlCmd // 按sessionId分组的遥控指令（主控端轮询取走执行）
 )
+
+// qrControlCmd 手机端下发的遥控指令
+type qrControlCmd struct {
+	Action string `json:"action"` // next / restart / togglePause / volume
+	Value  int    `json:"value"`  // 音量等附加数值
+}
 
 func init() {
 	qrPendingSongs = make(map[string][]PendingSong)
 	qrQueueData = make(map[string]json.RawMessage)
 	qrQueueIndex = make(map[string]int)
+	qrPendingControls = make(map[string][]qrControlCmd)
 }
 
 // PendingSong 手机端发来的点歌请求
@@ -78,6 +92,12 @@ type qrMessage struct {
 	Language            string          `json:"language,omitempty"`
 	Category            string          `json:"category,omitempty"`
 	Data                json.RawMessage `json:"data,omitempty"`
+	Action              string          `json:"action,omitempty"`  // 遥控指令：next/restart/togglePause/volume
+	Value               int             `json:"value,omitempty"`   // 遥控附加数值（如音量0-100）
+	CtrlEnabled         bool            `json:"ctrlEnabled,omitempty"`  // 手机遥控权限是否开启
+	PasswordNeeded      bool            `json:"passwordNeeded,omitempty"` // 是否需要输入密码
+	TrackMode           string          `json:"trackMode,omitempty"`  // 当前音轨模式：track=多音轨(原唱/伴奏) / channel=单音轨(立体声/左右声道)
+	ChannelCount        int             `json:"channelCount,omitempty"` // 当前曲目音频声道数（用于channel模式）
 }
 
 type qrSearchItem struct {
@@ -109,10 +129,11 @@ func initQRConfig() {
 	}
 
 	var cfg struct {
-		QRServerAddr string `json:"qrServerAddr"`
-		QRPassword   string `json:"qrPassword"`
-		QREnabled    bool   `json:"qrEnabled"`
-		QRMode       string `json:"qrMode"`
+		QRServerAddr   string `json:"qrServerAddr"`
+		QRPassword     string `json:"qrPassword"`
+		QREnabled      bool   `json:"qrEnabled"`
+		QRMode         string `json:"qrMode"`
+		QRCtrlEnabled  bool   `json:"qrCtrlEnabled"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return
@@ -122,6 +143,7 @@ func initQRConfig() {
 	qrPassword = cfg.QRPassword
 	qrEnabled = cfg.QREnabled
 	qrMode = cfg.QRMode
+	qrCtrlEnabled = cfg.QRCtrlEnabled
 	if qrMode == "" {
 		qrMode = "external" // 默认外接
 	}
@@ -147,6 +169,7 @@ func saveQRConfig() {
 	cfg["qrPassword"] = qrPassword
 	cfg["qrEnabled"] = qrEnabled
 	cfg["qrMode"] = qrMode
+	cfg["qrCtrlEnabled"] = qrCtrlEnabled
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -158,6 +181,116 @@ func saveQRConfig() {
 // isQRExternal 判断当前是否为外接模式（启用QR且模式为外接）
 func isQRExternal() bool {
 	return qrEnabled && qrMode == "external"
+}
+
+// qrCtrlAllowed 是否允许手机端远程控制播放
+func qrCtrlAllowed() bool {
+	return qrEnabled && qrCtrlEnabled
+}
+
+// handleQRControl 处理手机端遥控指令：切歌/重唱/播放暂停/音量
+func handleQRControl(msg qrMessage) {
+	if !qrCtrlAllowed() {
+		qrReply(qrMessage{
+			Type:      "controlDenied",
+			RequestID: msg.RequestID,
+			Message:   "主控端未开启手机遥控权限",
+		})
+		return
+	}
+
+	sid := msg.SessionID
+	if sid == "" {
+		sid = "default"
+	}
+	qrControlMutex.Lock()
+	qrPendingControls[sid] = append(qrPendingControls[sid], qrControlCmd{Action: msg.Action, Value: msg.Value})
+	qrControlMutex.Unlock()
+
+	qrReply(qrMessage{Type: "controlOk", RequestID: msg.RequestID, Message: "ok"})
+}
+
+// qrControlPollHandler 主控端轮询取走手机端下发的遥控指令（取走后清空）
+func qrControlPollHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	sid := r.URL.Query().Get("sessionId")
+
+	var cmds []qrControlCmd
+	qrControlMutex.Lock()
+	if sid == "" {
+		cmds = qrPendingControls[""]
+		qrPendingControls[""] = nil
+	} else {
+		cmds = qrPendingControls[sid]
+		qrPendingControls[sid] = nil
+	}
+	qrControlMutex.Unlock()
+
+	if cmds == nil {
+		cmds = []qrControlCmd{}
+	}
+	json.NewEncoder(w).Encode(struct {
+		Controls []qrControlCmd `json:"controls"`
+	}{Controls: cmds})
+}
+
+// qrBuildControlState 构造遥控权限状态消息
+func qrBuildControlState(sid string) qrMessage {
+	if qrTrackMode == "" {
+		qrTrackMode = "track"
+	}
+	if qrChannelCnt <= 0 {
+		qrChannelCnt = 2
+	}
+	return qrMessage{
+		Type:           "controlState",
+		SessionID:      sid,
+		CtrlEnabled:    qrCtrlAllowed(),
+		PasswordNeeded: qrPassword != "",
+		TrackMode:      qrTrackMode,
+		ChannelCount:   qrChannelCnt,
+	}
+}
+
+// qrTrackStateHandler 主控端上报当前曲目的音轨模式（track/channel）及声道数，并推送给所有手机
+func qrTrackStateHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	q := r.URL.Query()
+	mode := q.Get("mode")
+	if mode == "track" || mode == "channel" {
+		qrTrackMode = mode
+	}
+	if n, err := strconv.Atoi(q.Get("channels")); err == nil && n > 0 {
+		qrChannelCnt = n
+	}
+	broadcastQRControlState()
+	w.Write([]byte(`{"ok":true}`))
+}
+
+// broadcastQRControlState 主控端修改遥控权限后，向所有已连接手机推送最新状态
+func broadcastQRControlState() {
+	// 内置模式：遍历内置服务器会话，向每个已连接手机推送
+	if qrMode == "internal" {
+		qrInternalMu.Lock()
+		conns := []*websocket.Conn{}
+		for _, s := range qrInternalSessions {
+			for c := range s.mobiles {
+				conns = append(conns, c)
+			}
+		}
+		qrInternalMu.Unlock()
+		msg := qrBuildControlState("")
+		for _, c := range conns {
+			data, _ := json.Marshal(msg)
+			if err := c.WriteMessage(websocket.TextMessage, data); err != nil {
+				// 忽略单连接写入错误
+			}
+		}
+	}
+	// 外接模式：通知中继服务器，让它重新向各手机询问最新权限状态
+	if isQRExternal() {
+		qrWriteJSON(qrMessage{Type: "broadcastControlState"})
+	}
 }
 
 // qrReply 统一回复出口：内置模式走进程内路由，外接模式发送到中继服务器
@@ -257,6 +390,11 @@ func handleQRMessage(data []byte) {
 		handleQRRequestQueue(msg)
 	case "browse":
 		handleQRBrowse(msg)
+	case "control":
+		handleQRControl(msg)
+	case "requestControlState":
+		// 外接模式：中继服务器收到手机连接后询问遥控权限，回复后由中继广播给对应手机
+		qrReply(qrBuildControlState(msg.SessionID))
 	default:
 		fmt.Printf("[QR客户端] 未知消息类型: %s\n", msg.Type)
 	}
@@ -666,6 +804,8 @@ func registerQRHandlers() {
 	http.HandleFunc("/api/qr/queue-update", qrQueueUpdateHandler)
 	http.HandleFunc("/api/qr/image", qrImageHandler)
 	http.HandleFunc("/api/qr/register-session", qrRegisterSessionHandler)
+	http.HandleFunc("/api/qr/control", qrControlPollHandler)
+	http.HandleFunc("/api/qr/track-state", qrTrackStateHandler)
 }
 
 // qrStatusHandler 返回QR连接状态
@@ -690,17 +830,19 @@ func qrStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := struct {
-		Connected    bool   `json:"connected"`
-		QRServerAddr string `json:"qrServerAddr"`
-		QrUrlBase    string `json:"qrUrlBase"`
-		Mode         string `json:"mode"`
-		Enabled      bool   `json:"enabled"`
+		Connected       bool   `json:"connected"`
+		QRServerAddr    string `json:"qrServerAddr"`
+		QrUrlBase       string `json:"qrUrlBase"`
+		Mode            string `json:"mode"`
+		Enabled         bool   `json:"enabled"`
+		CtrlEnabled     bool   `json:"ctrlEnabled"`
 	}{
 		Connected:    connected,
 		QRServerAddr: qrServerAddr,
 		QrUrlBase:    qrBase,
 		Mode:         qrMode,
 		Enabled:      qrEnabled,
+		CtrlEnabled:  qrCtrlEnabled,
 	}
 
 	json.NewEncoder(w).Encode(result)
