@@ -19,13 +19,16 @@ var (
 	serverRunning  bool
 	videoEncoder   string
 	audioEncoder   string
+	// 音频实时转码码率（kbps），默认 192k，范围为 32-512k
+	audioTranscodeBitrate = 192
 )
 
 const configFile = "ktv_config.json"
 
 type Config struct {
-	MediaDirs []string `json:"mediaDirs"`
-	Port      string   `json:"port"`
+	MediaDirs             []string `json:"mediaDirs"`
+	Port                  string   `json:"port"`
+	AudioTranscodeBitrate int      `json:"audioTranscodeBitrate"`
 }
 
 func loadConfig() {
@@ -58,13 +61,19 @@ func loadConfig() {
 		port = config.Port
 	}
 	
-	fmt.Printf("加载配置: mediaDirs=%v, port=%s\n", mediaDirs, port)
+	// 音频实时转码码率：仅接受 32-512kbps，其余用默认 192k
+	if config.AudioTranscodeBitrate >= 32 && config.AudioTranscodeBitrate <= 512 {
+		audioTranscodeBitrate = config.AudioTranscodeBitrate
+	}
+	
+	fmt.Printf("加载配置: mediaDirs=%v, port=%s, audioBitrate=%dk\n", mediaDirs, port, audioTranscodeBitrate)
 }
 
 func saveConfig() {
 	config := Config{
-		MediaDirs: mediaDirs,
-		Port:      port,
+		MediaDirs:             mediaDirs,
+		Port:                  port,
+		AudioTranscodeBitrate: audioTranscodeBitrate,
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
@@ -168,6 +177,9 @@ func startServer() error {
 		http.HandleFunc("/api/media-duration", MediaDurationHandler)
 		http.HandleFunc("/api/random-song", RandomSongHandler)
 		http.HandleFunc("/api/lyrics", LyricsHandler)
+		http.HandleFunc("/api/lyrics/candidates", LyricCandidatesHandler)
+		http.HandleFunc("/api/lyrics/meta", LyricMetaHandler)
+		http.HandleFunc("/api/lyrics/save", LyricSaveHandler)
 		http.HandleFunc("/api/singers", SingerIndexHandler)
 		http.HandleFunc("/api/songs-by-singer", SongsBySingerHandler)
 		http.HandleFunc("/api/languages", LanguageIndexHandler)

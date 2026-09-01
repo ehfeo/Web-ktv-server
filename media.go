@@ -48,6 +48,18 @@ func parseFilenameFields(name string) (singer, language, category string) {
 // 扫描进度回调函数类型
 type ScanProgressCallback func(current, total int, fileName string)
 
+// 支持的音/视频容器格式（对应 ffmpeg 常见可解析格式）
+var mediaScanAudioExts = []string{
+	"mp3", "wav", "flac", "aac", "m4a", "m4r", "alac", "ogg", "oga", "opus",
+	"wma", "ape", "aiff", "aif", "amr", "dvf", "msv", "dts", "dff", "dsf",
+	"sacd", "tak", "tta", "wv", "mka",
+}
+var mediaScanVideoExts = []string{
+	"mp4", "webm", "mkv", "mpg", "mpeg", "avi", "mov", "wmv", "rm", "rmvb",
+	"ts", "m2ts", "mts", "m2t", "flv", "3gp", "3g2", "m4v", "vob", "ogv",
+	"asf", "divx", "f4v", "mxf", "wtv",
+}
+
 // 扫描媒体文件（带进度回调）
 func getMediaListWithProgress(callback ScanProgressCallback) []MediaFile {
 	var list []MediaFile
@@ -55,27 +67,20 @@ func getMediaListWithProgress(callback ScanProgressCallback) []MediaFile {
 	var currentCount int
 
 	// 支持的格式
-	exts := map[string]bool{
-		"mp3":  true,
-		"flac": true,
-		"wav":  true,
-		"mp4":  true,
-		"webm": true,
-		"mkv":  true,
-		"mpg":  true,
-		"mpeg": true,
-		"avi":  true,
-		"mov":  true,
-		"wmv":  true,
-		"rm":   true,
-		"rmvb": true,
-		"ts":   true,
-		"flv":  true,
-		"aac":  true,
-		"m4a":  true,
-		"ogg":  true,
-		"wma":  true,
-		"ape":  true,
+	exts := make(map[string]bool, len(mediaScanAudioExts)+len(mediaScanVideoExts))
+	for _, e := range mediaScanAudioExts {
+		exts[e] = true
+	}
+	for _, e := range mediaScanVideoExts {
+		exts[e] = true
+	}
+	isVideoExt := func(ext string) bool {
+		for _, e := range mediaScanVideoExts {
+			if e == ext {
+				return true
+			}
+		}
+		return false
 	}
 
 	// 先统计所有媒体目录中支持格式的文件总数
@@ -120,7 +125,7 @@ func getMediaListWithProgress(callback ScanProgressCallback) []MediaFile {
 
 			// 类型判断
 			t := "audio"
-			if ext == "mp4" || ext == "webm" || ext == "mkv" || ext == "mpg" || ext == "mpeg" || ext == "avi" || ext == "mov" || ext == "wmv" || ext == "rm" || ext == "rmvb" || ext == "ts" || ext == "flv" {
+			if isVideoExt(ext) {
 				t = "video"
 			}
 
@@ -202,11 +207,20 @@ var basenameToAbsFile struct {
 func scanDir(dir string) []MediaFile {
 	var list []MediaFile
 
-	exts := map[string]bool{
-		"mp3": true, "flac": true, "wav": true, "mp4": true, "webm": true,
-		"mkv": true, "mpg": true, "mpeg": true, "avi": true, "mov": true,
-		"wmv": true, "rm": true, "rmvb": true, "ts": true, "flv": true,
-		"aac": true, "m4a": true, "ogg": true, "wma": true, "ape": true,
+	exts := make(map[string]bool, len(mediaScanAudioExts)+len(mediaScanVideoExts))
+	for _, e := range mediaScanAudioExts {
+		exts[e] = true
+	}
+	for _, e := range mediaScanVideoExts {
+		exts[e] = true
+	}
+	isVideoExt := func(ext string) bool {
+		for _, e := range mediaScanVideoExts {
+			if e == ext {
+				return true
+			}
+		}
+		return false
 	}
 
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -226,7 +240,7 @@ func scanDir(dir string) []MediaFile {
 		}
 
 		t := "audio"
-		if ext == "mp4" || ext == "webm" || ext == "mkv" || ext == "mpg" || ext == "mpeg" || ext == "avi" || ext == "mov" || ext == "wmv" || ext == "rm" || ext == "rmvb" || ext == "ts" || ext == "flv" {
+		if isVideoExt(ext) {
 			t = "video"
 		}
 

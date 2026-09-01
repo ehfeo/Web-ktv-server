@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-var allowedExtensions = []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma", ".ape", ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".rm", ".rmvb", ".ts", ".webm", ".mpg", ".mpeg", ".flv"}
+var allowedExtensions = []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".m4r", ".alac", ".ogg", ".oga", ".opus", ".wma", ".ape", ".aiff", ".aif", ".amr", ".dvf", ".msv", ".dts", ".dff", ".dsf", ".sacd", ".tak", ".tta", ".wv", ".mka", ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".rm", ".rmvb", ".ts", ".m2ts", ".mts", ".m2t", ".3gp", ".3g2", ".m4v", ".vob", ".ogv", ".asf", ".divx", ".f4v", ".mxf", ".wtv", ".webm", ".mpg", ".mpeg", ".flv"}
 
 func UploadPageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -84,7 +84,7 @@ var filesToUpload = [];
 var uploading = false;
 var currentUploadIdx = -1;
 
-var allowedExts = ['.mp3','.wav','.flac','.aac','.m4a','.ogg','.wma','.ape','.mp4','.mkv','.avi','.mov','.wmv','.rm','.rmvb','.ts','.webm','.mpg','.mpeg','.flv'];
+var allowedExts = ['.mp3','.wav','.flac','.aac','.m4a','.m4r','.alac','.ogg','.oga','.opus','.wma','.ape','.aiff','.aif','.amr','.dvf','.msv','.dts','.dff','.dsf','.sacd','.tak','.tta','.wv','.mka','.mp4','.mkv','.avi','.mov','.wmv','.rm','.rmvb','.ts','.m2ts','.mts','.m2t','.3gp','.3g2','.m4v','.vob','.ogv','.asf','.divx','.f4v','.mxf','.wtv','.webm','.mpg','.mpeg','.flv'];
 
 function isAllowedFile(name) {
   var dotIdx = name.lastIndexOf('.');

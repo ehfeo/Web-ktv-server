@@ -345,14 +345,16 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function isAudioFile(fileName) {
-        var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.wma', '.ape'];
+        var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.m4r', '.alac', '.ogg', '.oga', '.opus', '.wma', '.ape', '.aiff', '.aif', '.amr', '.dvf', '.msv', '.dts', '.dff', '.dsf', '.sacd', '.tak', '.tta', '.wv', '.mka'];
         var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
         return audioExtensions.indexOf(ext) !== -1;
     }
 
     function needsAudioTranscode(fileName) {
         var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
-        return ext === '.ape' || ext === '.wma';
+        return ext === '.ape' || ext === '.wma' || ext === '.dts' || ext === '.dff' || ext === '.dsf' ||
+            ext === '.aiff' || ext === '.aif' || ext === '.amr' || ext === '.dvf' || ext === '.msv' ||
+            ext === '.sacd' || ext === '.tak' || ext === '.tta' || ext === '.wv' || ext === '.mka' || ext === '.oga';
     }
 
     function showPopupBlockedWarning() {

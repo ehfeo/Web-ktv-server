@@ -64,8 +64,9 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QREnabled    bool     `json:"qrEnabled"`
 			QRServerAddr string   `json:"qrServerAddr"`
 			QRPassword   string   `json:"qrPassword"`
-			QRMode       string   `json:"qrMode"`
-			QRCtrlEnabled bool    `json:"qrCtrlEnabled"`
+			QRMode        string   `json:"qrMode"`
+			QRCtrlEnabled bool     `json:"qrCtrlEnabled"`
+			AudioTranscodeBitrate int `json:"audioTranscodeBitrate"`
 		}{
 			MediaDirs:    mediaDirs,
 			Port:         port,
@@ -74,6 +75,7 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QRPassword:   qrPassword,
 			QRMode:       qrMode,
 			QRCtrlEnabled: qrCtrlEnabled,
+			AudioTranscodeBitrate: audioTranscodeBitrate,
 		}
 		json.NewEncoder(w).Encode(result)
 		return
@@ -92,8 +94,9 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QREnabled    bool     `json:"qrEnabled"`
 			QRServerAddr string   `json:"qrServerAddr"`
 			QRPassword   string   `json:"qrPassword"`
-			QRMode       string   `json:"qrMode"`
-			QRCtrlEnabled bool    `json:"qrCtrlEnabled"`
+			QRMode        string   `json:"qrMode"`
+			QRCtrlEnabled bool     `json:"qrCtrlEnabled"`
+			AudioTranscodeBitrate int `json:"audioTranscodeBitrate"`
 		}
 
 		if err := json.Unmarshal(data, &config); err != nil {
@@ -111,6 +114,9 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 		qrServerAddr = config.QRServerAddr
 		qrPassword = config.QRPassword
 		qrCtrlEnabled = config.QRCtrlEnabled
+		if config.AudioTranscodeBitrate >= 32 && config.AudioTranscodeBitrate <= 512 {
+			audioTranscodeBitrate = config.AudioTranscodeBitrate
+		}
 		if config.QRMode == "internal" {
 			qrMode = "internal"
 		} else if config.QRMode == "external" {

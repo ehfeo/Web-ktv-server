@@ -52,7 +52,7 @@ func MusicModeStreamHandler(w http.ResponseWriter, r *http.Request) {
 		"-i", filePath,
 		"-map", "0:a:" + strconv.Itoa(trackIndex),
 		"-c:a", "aac",
-		"-b:a", "192k",
+		"-b:a", strconv.Itoa(audioTranscodeBitrate) + "k",
 		"-f", "adts",
 		"-",
 	}

@@ -17,6 +17,11 @@ body{width:100vw;height:100vh;overflow:hidden;background:linear-gradient(135deg,
 video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .lyrics-container{position:absolute;top:0;left:0;width:calc(100vw - 20px);height:85vh;display:flex;align-items:flex-start;justify-content:flex-start;z-index:10;overflow:hidden;pointer-events:none;margin-right:10px}
 .lyrics{width:100%;height:100%;text-align:center;color:#fff;font-size:26px;line-height:1.9;text-shadow:0 1px 2px rgba(0,0,0,0.5);overflow-y:auto;display:flex;flex-direction:column;align-items:center;pointer-events:auto;box-sizing:border-box;padding:20px 30px 20px 20px}
+.lyrics-source-tip{position:fixed;top:12px;left:14px;z-index:200;background:rgba(0,0,0,0.65);color:#fff;padding:4px 10px;border-radius:4px;font-size:13px;pointer-events:none;transition:opacity 0.3s ease;opacity:1}
+.lyrics-adj{position:fixed;top:12px;right:16px;z-index:200;display:flex;align-items:center;gap:6px}
+.lyrics-adj button{padding:4px 12px;border:none;border-radius:4px;background:rgba(0,0,0,0.55);color:#fff;font-size:13px;cursor:pointer;transition:background 0.15s ease}
+.lyrics-adj button:hover{background:rgba(66,139,202,0.85)}
+.lyric-shift-amt{color:#fff;font-size:12px;padding:3px 7px;background:rgba(0,0,0,0.55);border-radius:4px;min-width:44px;text-align:center;user-select:none;line-height:16px}
 .lyrics-line{margin:10px 0;opacity:0.55;transition:all 0.4s cubic-bezier(.4,0,.2,1)}
 .lyrics-line.active{opacity:1;font-size:32px;font-weight:bold;color:#5bc0de;text-shadow:0 1px 2px rgba(0,0,0,0.5)}
 .ctrl-bar{position:fixed;bottom:40px;left:40px;z-index:999;display:flex;gap:18px;opacity:0;transition:opacity 0.3s ease;background:transparent !important}
@@ -52,8 +57,27 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
   <div class="lyrics-container" id="lyricsContainer">
     <div class="lyrics" id="lyrics"></div>
   </div>
+  <div class="lyrics-adj" id="lyricsAdj" style="display:none">
+    <button onclick="lyricShift(0.5)" title="歌词整体提前0.5秒">提前</button>
+    <span class="lyric-shift-amt" id="lyricShiftAmt">+0.0s</span>
+    <button onclick="lyricShift(-0.5)" title="歌词整体推后0.5秒">推后</button>
+    <button onclick="openLyricPicker()">选歌词</button>
+  </div>
 </div>
 <div class="tips" id="tipBox"></div>
+<div id="lyricPickerMask" style="display:none;position:fixed;inset:0;z-index:2147483005;background:rgba(0,0,0,0.6)">
+  <div style="position:absolute;top:8vh;left:15vw;width:70vw;max-height:80vh;background:#1e2d3a;border:1px solid #2c3e50;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #2c3e50;color:#fff">
+      <b>选择歌词</b><button onclick="closeLyricPicker()" style="background:#d9534f;color:#fff;border:none;border-radius:4px;padding:4px 14px;cursor:pointer">关闭</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #2c3e50;color:#fff;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px">歌名<input id="lyricPickTitle" type="text" placeholder="歌名" style="background:#202f3d;border:1px solid #2c3e50;border-radius:4px;color:#fff;padding:5px 8px;min-width:180px"></label>
+      <label style="display:flex;align-items:center;gap:6px">歌手<input id="lyricPickArtist" type="text" placeholder="歌手" style="background:#202f3d;border:1px solid #2c3e50;border-radius:4px;color:#fff;padding:5px 8px;min-width:140px"></label>
+      <button onclick="doLyricSearch()" style="background:#428bca;color:#fff;border:none;border-radius:4px;padding:5px 16px;cursor:pointer">搜索歌词</button>
+    </div>
+    <div id="lyricPickerList" style="flex:1;overflow-y:auto;padding:8px"></div>
+  </div>
+</div>
 <div id="trackWarningBar" style="display:none;background:#d9534f;color:#fff;padding:10px 16px;font-size:15px;font-weight:bold;text-align:center;animation:warnPulse 2s infinite">
   <span id="trackWarningText"></span>
 </div>
@@ -90,6 +114,7 @@ var trackList = [];
 var retryTimer = null;
 var lyrics = [];
 var currentLyricIndex = 0;
+var lyricOffset = 0; // 歌词整体时间偏移（秒），正数=推后，负数=提前
 var currentFileName = '';
 var currentFilePath = '';
 var currentQueue = [];
@@ -158,12 +183,50 @@ function decodeBuffer(uint8) {
   }
 }
 
+function lyricTipText(header) {
+  if (header === 'local') return '歌词来源：本地文件';
+  if (header === 'embedded') return '歌词来源：内嵌歌词';
+  if (header) {
+    var map = {qq:'QQ音乐', netease:'网易云', lrclib:'LRCLIB', kugou:'酷狗', kuwo:'酷我', migu:'咪咕', lrccx:'lrc.cx'};
+    return '歌词来源：' + (map[header] || header);
+  }
+  return '歌词来源：在线搜索';
+}
+
+function showLyricsSourceTip(text) {
+  var old = document.getElementById('lyricsSourceTip');
+  if (old) old.remove();
+  var tip = document.createElement('div');
+  tip.id = 'lyricsSourceTip';
+  tip.className = 'lyrics-source-tip';
+  tip.textContent = text;
+  document.body.appendChild(tip);
+  var c = document.getElementById('lyricsContainer');
+  function place() {
+    if (c) {
+      var r = c.getBoundingClientRect();
+      tip.style.left = (r.left + 14) + 'px';
+      tip.style.top = (r.top + 12) + 'px';
+    }
+  }
+  place();
+  setTimeout(place, 80);
+  setTimeout(place, 300);
+  setTimeout(function() {
+    tip.style.opacity = '0';
+    setTimeout(function() { if (tip.parentNode) tip.remove(); }, 320);
+  }, 3000);
+}
+
 function loadLyrics(songName) {
-  var videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.mpg', '.mpeg', '.rm', '.rmvb', '.ts', '.webm'];
+  lyricOffset = 0; currentLyricIndex = 0;
+  document.querySelectorAll('.lyric-shift-amt').forEach(function(s){ s.textContent = '+0.0s'; });
+  var videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.mpg', '.mpeg', '.rm', '.rmvb', '.ts', '.m2ts', '.mts', '.m2t', '.3gp', '.3g2', '.m4v', '.vob', '.ogv', '.asf', '.divx', '.f4v', '.mxf', '.wtv', '.webm'];
   var fileExtension = songName.toLowerCase().substring(songName.lastIndexOf('.'));
 
   if (videoExtensions.indexOf(fileExtension) !== -1) {
     document.getElementById("lyricsContainer").style.display = "none";
+    document.getElementById("lyricsAdj").style.display = "none";
     document.querySelector(".ctrl-bar").style.display = "flex";
     return;
   }
@@ -185,6 +248,7 @@ function loadLyrics(songName) {
       var text = decodeBuffer(uint8);
       lyrics = parseLRC(text);
       renderLyrics();
+      if (lyrics.length > 0) showLyricsSourceTip('歌词来源：本地文件');
     } else {
       loadEmbeddedLyrics(songName);
     }
@@ -206,6 +270,7 @@ function loadEmbeddedLyrics(songName) {
       lyrics = parseLRC(text);
       if (lyrics.length > 0) {
         renderLyrics();
+        showLyricsSourceTip(lyricTipText(xhr.getResponseHeader('X-Lyrics-Source')));
       } else {
         document.getElementById("lyrics").innerHTML = '<div class="lyrics-line">暂无歌词</div>';
       }
@@ -220,6 +285,7 @@ function loadEmbeddedLyrics(songName) {
 }
 
 function renderLyrics() {
+  document.getElementById("lyricsAdj").style.display = "flex";
   var lyricsElement = document.getElementById("lyrics");
   lyricsElement.innerHTML = '';
 
@@ -246,7 +312,7 @@ function renderLyrics() {
 function updateLyrics() {
   if (!video || lyrics.length === 0) return;
 
-  var currentTime = video.currentTime;
+  var currentTime = video.currentTime + lyricOffset;
   var newIndex = currentLyricIndex;
 
   for (var i = 0; i < lyrics.length; i++) {
@@ -279,6 +345,78 @@ function updateLyrics() {
 
     currentLyricIndex = newIndex;
   }
+}
+
+function lyricShift(d) {
+  lyricOffset += d;
+  currentLyricIndex = 0;
+  updateLyrics();
+  document.querySelectorAll('.lyric-shift-amt').forEach(function(s) {
+    s.textContent = (lyricOffset > 0 ? '+' : '') + lyricOffset.toFixed(1) + 's';
+  });
+}
+
+function openLyricPicker() {
+  document.getElementById('lyricPickTitle').value = '';
+  document.getElementById('lyricPickArtist').value = '';
+  var list = document.getElementById('lyricPickerList');
+  list.innerHTML = '<div style="color:#aaa;padding:20px;text-align:center">输入歌名/歌手后点击“搜索歌词”</div>';
+  document.getElementById('lyricPickerMask').style.display = 'block';
+  fetch('/api/lyrics/meta?fileName=' + encodeURIComponent(currentFileName || currentFilePath))
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j) {
+        if (j.title) document.getElementById('lyricPickTitle').value = j.title;
+        if (j.artist) document.getElementById('lyricPickArtist').value = j.artist;
+      }
+    })
+    .catch(function() {});
+}
+function doLyricSearch() {
+  var t = encodeURIComponent(document.getElementById('lyricPickTitle').value.trim());
+  var a = encodeURIComponent(document.getElementById('lyricPickArtist').value.trim());
+  var list = document.getElementById('lyricPickerList');
+  list.innerHTML = '<div style="color:#aaa;padding:20px;text-align:center">正在搜索各接口歌词候选…</div>';
+  fetch('/api/lyrics/candidates?fileName=' + encodeURIComponent(currentFileName || currentFilePath) + '&title=' + t + '&artist=' + a)
+    .then(function(res) { return res.json(); })
+    .then(function(arr) { renderLyricPicker(arr); })
+    .catch(function() { list.innerHTML = '<div style="color:#d9534f;padding:20px;text-align:center">搜索失败，请重试</div>'; });
+}
+function renderLyricPicker(arr) {
+  var list = document.getElementById('lyricPickerList');
+  list.innerHTML = '';
+  if (!arr || !arr.length) { list.innerHTML = '<div style="color:#aaa;padding:20px;text-align:center">没有可用的歌词候选</div>'; return; }
+  arr.forEach(function(c) {
+    var item = document.createElement('div');
+    item.style.cssText = 'padding:8px 10px;margin:4px 0;background:#243744;border:1px solid #2c3e50;border-radius:4px;cursor:pointer;color:#fff;display:flex;align-items:center;gap:8px;flex-wrap:nowrap';
+    item.onmouseover = function(){ item.style.background = '#2c3e50'; };
+    item.onmouseout = function(){ item.style.background = '#243744'; };
+    var badge = document.createElement('span');
+    badge.style.cssText = 'background:#428bca;color:#fff;border-radius:3px;padding:2px 6px;font-size:12px;white-space:nowrap;flex-shrink:0';
+    badge.textContent = c.source;
+    var info = document.createElement('span');
+    info.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    var dur = '';
+    if (c.duration > 0) { var m=Math.floor(c.duration/60), s=Math.floor(c.duration%60); dur = ' [' + m + ':' + (s<10?'0':'') + s + ']'; }
+    info.textContent = (c.title || '') + (c.artist ? ' - ' + c.artist : '') + dur;
+    item.appendChild(badge); item.appendChild(info);
+    item.onclick = function() { applyLyricPicker(c.lyrics, c.source); };
+    list.appendChild(item);
+  });
+}
+function applyLyricPicker(lrcText, source) {
+  lyrics = parseLRC(lrcText);
+  if (!lyrics.length) { alert('该候选没有时间轴歌词'); return; }
+  currentLyricIndex = 0; lyricOffset = 0;
+  document.getElementById("lyricsContainer").style.display = "flex";
+  document.querySelector(".ctrl-bar").style.display = "none";
+  renderLyrics();
+  showLyricsSourceTip('歌词来源：手动选择(' + source + ')');
+  closeLyricPicker();
+  try { fetch('/api/lyrics/save?fileName=' + encodeURIComponent(currentFileName), { method: 'POST', body: lrcText }); } catch (e) {}
+}
+function closeLyricPicker() {
+  document.getElementById('lyricPickerMask').style.display = 'none';
 }
 
 function setupChannelRouting(mode) {
@@ -502,7 +640,7 @@ function switchTrack(targetIdx) {
 }
 
 function isAudioFile(fileName) {
-  var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.ogg', '.wma', '.ape'];
+  var audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.m4a', '.m4r', '.alac', '.ogg', '.oga', '.opus', '.wma', '.ape', '.aiff', '.aif', '.amr', '.dvf', '.msv', '.dts', '.dff', '.dsf', '.sacd', '.tak', '.tta', '.wv', '.mka'];
   var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
   return audioExtensions.indexOf(ext) !== -1;
 }

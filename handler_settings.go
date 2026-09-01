@@ -56,6 +56,12 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
             <input type="text" id="port" placeholder="请输入端口号，如：82">
         </div>
 
+        <div class="form-group">
+            <label for="audioBitrate">音频实时转码码率（kbps）</label>
+            <input type="number" id="audioBitrate" min="32" max="512" placeholder="请输入码率，范围 32-512，默认 192">
+            <div class="hint">用于播放 wma / ape / dts / dff / dsf 及多音轨抽取等需要转码的音频。数值越高音质越好但占用带宽与CPU更多，AAC 编码上限为 512k，建议 128-320。</div>
+        </div>
+
         <h2 style="margin:25px 0 15px;font-size:18px">扫码点歌设置</h2>
 
         <div class="form-group">
@@ -142,6 +148,7 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
                     var config = JSON.parse(xhr.responseText);
                     document.getElementById('mediaDirs').value = config.mediaDirs.join('\n');
                     document.getElementById('port').value = config.port;
+                    document.getElementById('audioBitrate').value = config.audioTranscodeBitrate;
                     document.getElementById('qrEnabled').value = config.qrEnabled ? 'true' : 'false';
                     document.getElementById('qrMode').value = config.qrMode === 'internal' ? 'internal' : 'external';
                     document.getElementById('qrServerAddr').value = config.qrServerAddr || '';
@@ -163,9 +170,15 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
 
             var port = document.getElementById('port').value;
 
+            var audioBitrate = parseInt(document.getElementById('audioBitrate').value, 10);
+            if (isNaN(audioBitrate)) audioBitrate = 192;
+            if (audioBitrate < 32) audioBitrate = 32;
+            if (audioBitrate > 512) audioBitrate = 512;
+
             var config = {
                 mediaDirs: mediaDirs,
                 port: port,
+                audioTranscodeBitrate: audioBitrate,
                 qrEnabled: document.getElementById('qrEnabled').value === 'true',
                 qrMode: document.getElementById('qrMode').value,
                 qrServerAddr: document.getElementById('qrServerAddr').value.trim(),

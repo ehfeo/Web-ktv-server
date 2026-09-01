@@ -18,6 +18,7 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
 .lyrics-container{flex:1;overflow-y:auto;overflow-x:hidden;text-align:center;padding:0 20px;mask-image:linear-gradient(transparent,black 10%,black 90%,transparent);-webkit-mask-image:linear-gradient(transparent,black 10%,black 90%,transparent)}
 .lyrics-line{margin:10px 0;opacity:0.35;font-size:18px;transition:all 0.4s ease;white-space:nowrap;display:block;width:fit-content;margin-left:auto;margin-right:auto;max-width:100%;color:rgba(255,255,255,0.5);text-shadow:0 1px 2px rgba(0,0,0,0.3)}
 .lyrics-line.active{opacity:1;font-size:24px;font-weight:bold;color:#5bc0de;text-shadow:0 1px 3px rgba(0,0,0,0.3)}
+.lyrics-source-tip{position:fixed;top:12px;left:14px;z-index:200;background:rgba(0,0,0,0.65);color:#fff;padding:4px 10px;border-radius:4px;font-size:13px;pointer-events:none;transition:opacity 0.3s ease;opacity:1}
 .visual-container{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
 .visual-canvas-wrap{flex:1;min-height:0;position:relative;background:#0f1923;border-radius:6px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.3);outline:1px solid #2c3e50;outline-offset:-1px}
 .visual-canvas-wrap canvas{width:100%;height:100%;display:block}
@@ -31,6 +32,8 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
 .toolbar select{appearance:auto;-webkit-appearance:menulist;background:#6c757d;border-color:#5a6268}
 .toolbar select:hover{background:#5a6268}
 .toolbar select option{background:#1a252f;color:#fff}
+.lyric-shift-group{display:flex;align-items:center;gap:4px}
+.lyric-shift-amt{color:#fff;font-size:12px;padding:3px 7px;background:#34495e;border-radius:4px;min-width:44px;text-align:center;user-select:none;line-height:16px}
 .toolbar input[type="color"]{width:30px;height:24px;border:1px solid #2c3e50;border-radius:6px;background:#6c757d;cursor:pointer;padding:0;vertical-align:middle;box-shadow:0 2px 4px rgba(0,0,0,0.25)}
 .player-controls{display:flex;align-items:center;gap:12px;padding:12px 20px;background:#1e2d3a;border-top:1px solid #2c3e50;box-shadow:0 -2px 8px rgba(0,0,0,0.2)}
 .progress-bar{flex:1;height:10px;background:#2c3e50;border-radius:5px;cursor:pointer;position:relative;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
@@ -148,6 +151,12 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
       <option value="slide">滑入</option>
       <option value="bounce">弹跳</option>
     </select>
+    <div class="lyric-shift-group" id="lyricShiftGroup" style="display:none">
+      <button onclick="lyricShift(0.5)" title="歌词整体提前0.5秒">提前</button>
+      <span class="lyric-shift-amt" title="当前累计偏移量">+0.0s</span>
+      <button onclick="lyricShift(-0.5)" title="歌词整体推后0.5秒">推后</button>
+    </div>
+    <button id="btnManualLyrics" onclick="openLyricPicker()" title="手动选择歌词（多接口候选）" style="display:none">选歌词</button>
     <button onclick="toggleFullscreen()" title="全屏">⛶</button>
   </div>
 </div>
@@ -228,10 +237,29 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
         <option value="slide">滑入</option>
         <option value="bounce">弹跳</option>
       </select>
+      <div class="lyric-shift-group" id="lyricShiftGroupFs" style="display:none">
+        <button onclick="lyricShift(0.5)" title="歌词整体提前0.5秒">提前</button>
+        <span class="lyric-shift-amt" title="当前累计偏移量">+0.0s</span>
+        <button onclick="lyricShift(-0.5)" title="歌词整体推后0.5秒">推后</button>
+      </div>
+      <button id="btnManualLyricsFs" onclick="openLyricPicker()" title="手动选择歌词（多接口候选）" style="display:none">选歌词</button>
       <button onclick="toggleFullscreen()">✕</button>
     </div>
   </div>
   <div class="exit-fullscreen-hint">按 ESC 或 F11 退出全屏</div>
+</div>
+<div id="lyricPickerMask" style="display:none;position:fixed;inset:0;z-index:2147483005;background:rgba(0,0,0,0.6)">
+  <div style="position:absolute;top:8vh;left:15vw;width:70vw;max-height:80vh;background:#1e2d3a;border:1px solid #2c3e50;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #2c3e50;color:#fff">
+      <b>选择歌词</b><button onclick="closeLyricPicker()" style="background:#d9534f;color:#fff;border:none;border-radius:4px;padding:4px 14px;cursor:pointer">关闭</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #2c3e50;color:#fff;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:6px">歌名<input id="lyricPickTitle" type="text" placeholder="歌名" style="background:#202f3d;border:1px solid #2c3e50;border-radius:4px;color:#fff;padding:5px 8px;min-width:180px"></label>
+      <label style="display:flex;align-items:center;gap:6px">歌手<input id="lyricPickArtist" type="text" placeholder="歌手" style="background:#202f3d;border:1px solid #2c3e50;border-radius:4px;color:#fff;padding:5px 8px;min-width:140px"></label>
+      <button onclick="doLyricSearch()" style="background:#428bca;color:#fff;border:none;border-radius:4px;padding:5px 16px;cursor:pointer">搜索歌词</button>
+    </div>
+    <div id="lyricPickerList" style="flex:1;overflow-y:auto;padding:8px"></div>
+  </div>
 </div>
 
 <audio id="audioPlayer" autoplay></audio>
@@ -258,6 +286,7 @@ var isFullscreen = false;
 var currentTheme = 'smart-blue';
 var currentTransition = 'zoom';
 var waveformTimeMs = 100;
+var lyricOffset = 0; // 歌词整体时间偏移（秒），正数=推后，负数=提前
 
 var spectrumSettings = {
   fftSize: 4096, barCount: 256, showPeaks: true,
@@ -458,6 +487,8 @@ function setView(view) {
   ['selCurveStyle','selCurveStyleFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=isSpectrumCurve?'':'none';});
   ['selTheme','selThemeFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=view==='lyrics'?'':'none';});
   ['selTransition','selTransitionFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=view==='lyrics'?'':'none';});
+  ['lyricShiftGroup','lyricShiftGroupFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=view==='lyrics'?'':'none';});
+  ['btnManualLyrics','btnManualLyricsFs'].forEach(function(id){var e=document.getElementById(id);if(e)e.style.display=view==='lyrics'?'':'none';});
 
   // 切换到波形视图时重置帧时间，避免dt过大导致推入大量重复数据
   if (view === 'waveform') {
@@ -474,6 +505,7 @@ function setView(view) {
   if (isLyrics && hasLyrics) {
     var container = isFullscreen ? document.getElementById('fsLyricsContainer') : document.getElementById('lyricsContainer');
     var lines = container.querySelectorAll('.lyrics-line');
+    autoScaleLyricsFont();
     if (lines[currentLyricIndex]) {
       var lineTop = lines[currentLyricIndex].offsetTop - (isFullscreen ? document.getElementById('fsLyrics') : document.getElementById('lyrics')).offsetTop;
       container.scrollTo({top: lineTop - container.clientHeight/2 + 20, behavior:'smooth'});
@@ -1040,8 +1072,49 @@ function decodeBuffer(uint8) {
   return gbkTest.replace(/[^\x00-\x7F]/g, '').length > utf8Text.replace(/[^\x00-\x7F]/g, '').length * 2 ? gbkTest : utf8Text;
 }
 
+function lyricTipText(header) {
+  if (header === 'local') return '歌词来源：本地文件';
+  if (header === 'embedded') return '歌词来源：内嵌歌词';
+  if (header) {
+    var map = {qq:'QQ音乐', netease:'网易云', lrclib:'LRCLIB', kugou:'酷狗', kuwo:'酷我', migu:'咪咕', lrccx:'lrc.cx'};
+    return '歌词来源：' + (map[header] || header);
+  }
+  return '歌词来源：在线搜索';
+}
+
+function showLyricsSourceTip(text) {
+  var old = document.getElementById('lyricsSourceTip');
+  if (old) old.remove();
+  var tip = document.createElement('div');
+  tip.id = 'lyricsSourceTip';
+  tip.className = 'lyrics-source-tip';
+  tip.textContent = text;
+  document.body.appendChild(tip);
+  // 定位到当前可见歌词容器的左上角（歌词容器带 mask 会裁剪内部元素，故挂到 body 用 fixed 定位）
+  function place() {
+    var vis = null;
+    var fs = document.getElementById('fsLyricsContainer');
+    var main = document.getElementById('lyricsContainer');
+    if (fs && fs.offsetParent !== null) vis = fs;
+    else if (main && main.offsetParent !== null) vis = main;
+    if (vis) {
+      var r = vis.getBoundingClientRect();
+      tip.style.left = (r.left + 14) + 'px';
+      tip.style.top = (r.top + 12) + 'px';
+    }
+  }
+  place();
+  setTimeout(place, 80);
+  setTimeout(place, 300);
+  setTimeout(function() {
+    tip.style.opacity = '0';
+    setTimeout(function() { if (tip.parentNode) tip.remove(); }, 320);
+  }, 3000);
+}
+
 function loadLyrics(songName) {
-  lyrics = []; currentLyricIndex = 0; hasLyrics = false;
+  lyrics = []; currentLyricIndex = 0; hasLyrics = false; lyricOffset = 0;
+  document.querySelectorAll('.lyric-shift-amt').forEach(function(s){ s.textContent = '+0.0s'; });
   document.getElementById("lyrics").innerHTML = '';
   document.getElementById("fsLyrics").innerHTML = '';
   // 用户未手动选择过视图时，切歌先回退到波形
@@ -1057,6 +1130,7 @@ function loadLyrics(songName) {
       lyrics = parseLRC(decodeBuffer(new Uint8Array(xhr.response)));
       if (lyrics.length > 0) {
         hasLyrics=true; renderLyrics();
+        showLyricsSourceTip('歌词来源：本地文件');
         if (!userSelectedView) setView('lyrics');
       } else loadEmbeddedLyrics(songName);
     } else loadEmbeddedLyrics(songName);
@@ -1074,6 +1148,7 @@ function loadEmbeddedLyrics(songName) {
       lyrics = parseLRC(decodeBuffer(new Uint8Array(xhr.response)));
       if (lyrics.length > 0) {
         hasLyrics=true; renderLyrics();
+        showLyricsSourceTip(lyricTipText(xhr.getResponseHeader('X-Lyrics-Source')));
         if (!userSelectedView) setView('lyrics');
       } else {
         if (!userSelectedView) setView('waveform');
@@ -1101,7 +1176,11 @@ function renderLyrics() {
     });
     var bot = document.createElement('div'); bot.style.height = '80px'; el.appendChild(bot);
   });
-  autoScaleLyricsFont();
+  // 延迟到视图切换（setView 使歌词容器可见）后再计算字体大小：
+  // 若容器 display:none，clientWidth=0 会导致提前返回，字体回退为 CSS 默认 18px（偏小），
+  // 只有 resize 才会重新适配。这里在 setView 之后再次触发即可自动放大到合适大小。
+  setTimeout(autoScaleLyricsFont, 30);
+  setTimeout(autoScaleLyricsFont, 250);
   setTimeout(function() {
     document.getElementById('lyricsContainer').scrollTop = 0;
     document.getElementById('fsLyricsContainer').scrollTop = 0;
@@ -1152,9 +1231,80 @@ function autoScaleLyricsFont() {
   });
 }
 
+function lyricShift(d) {
+  lyricOffset += d;
+  currentLyricIndex = 0;
+  updateLyrics();
+  document.querySelectorAll('.lyric-shift-amt').forEach(function(s) {
+    s.textContent = (lyricOffset > 0 ? '+' : '') + lyricOffset.toFixed(1) + 's';
+  });
+}
+
+function openLyricPicker() {
+  document.getElementById('lyricPickTitle').value = '';
+  document.getElementById('lyricPickArtist').value = '';
+  var list = document.getElementById('lyricPickerList');
+  list.innerHTML = '<div style="color:#aaa;padding:20px;text-align:center">输入歌名/歌手后点击“搜索歌词”</div>';
+  document.getElementById('lyricPickerMask').style.display = 'block';
+  fetch('/api/lyrics/meta?fileName=' + encodeURIComponent(currentFileName || currentFilePath))
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j) {
+        if (j.title) document.getElementById('lyricPickTitle').value = j.title;
+        if (j.artist) document.getElementById('lyricPickArtist').value = j.artist;
+      }
+    })
+    .catch(function() {});
+}
+function doLyricSearch() {
+  var t = encodeURIComponent(document.getElementById('lyricPickTitle').value.trim());
+  var a = encodeURIComponent(document.getElementById('lyricPickArtist').value.trim());
+  var list = document.getElementById('lyricPickerList');
+  list.innerHTML = '<div style="color:#aaa;padding:20px;text-align:center">正在搜索各接口歌词候选…</div>';
+  fetch('/api/lyrics/candidates?fileName=' + encodeURIComponent(currentFileName || currentFilePath) + '&title=' + t + '&artist=' + a)
+    .then(function(res) { return res.json(); })
+    .then(function(arr) { renderLyricPicker(arr); })
+    .catch(function() { list.innerHTML = '<div style="color:#d9534f;padding:20px;text-align:center">搜索失败，请重试</div>'; });
+}
+function renderLyricPicker(arr) {
+  var list = document.getElementById('lyricPickerList');
+  list.innerHTML = '';
+  if (!arr || !arr.length) { list.innerHTML = '<div style="color:#aaa;padding:20px;text-align:center">没有可用的歌词候选</div>'; return; }
+  arr.forEach(function(c) {
+    var item = document.createElement('div');
+    item.style.cssText = 'padding:8px 10px;margin:4px 0;background:#243744;border:1px solid #2c3e50;border-radius:4px;cursor:pointer;color:#fff;display:flex;align-items:center;gap:8px;flex-wrap:nowrap';
+    item.onmouseover = function(){ item.style.background = '#2c3e50'; };
+    item.onmouseout = function(){ item.style.background = '#243744'; };
+    var badge = document.createElement('span');
+    badge.style.cssText = 'background:#428bca;color:#fff;border-radius:3px;padding:2px 6px;font-size:12px;white-space:nowrap;flex-shrink:0';
+    badge.textContent = c.source;
+    var info = document.createElement('span');
+    info.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    var dur = '';
+    if (c.duration > 0) { var m=Math.floor(c.duration/60), s=Math.floor(c.duration%60); dur = ' [' + m + ':' + (s<10?'0':'') + s + ']'; }
+    info.textContent = (c.title || '') + (c.artist ? ' - ' + c.artist : '') + dur;
+    item.appendChild(badge); item.appendChild(info);
+    item.onclick = function() { applyLyricPicker(c.lyrics, c.source); };
+    list.appendChild(item);
+  });
+}
+function applyLyricPicker(lrcText, source) {
+  lyrics = parseLRC(lrcText);
+  if (!lyrics.length) { alert('该候选没有时间轴歌词'); return; }
+  currentLyricIndex = 0; lyricOffset = 0; hasLyrics = true;
+  renderLyrics();
+  setView('lyrics');
+  showLyricsSourceTip('歌词来源：手动选择(' + source + ')');
+  closeLyricPicker();
+  try { fetch('/api/lyrics/save?fileName=' + encodeURIComponent(currentFileName), { method: 'POST', body: lrcText }); } catch (e) {}
+}
+function closeLyricPicker() {
+  document.getElementById('lyricPickerMask').style.display = 'none';
+}
+
 function updateLyrics() {
   if (!audio || lyrics.length === 0) return;
-  var ct = audio.currentTime, newIdx = currentLyricIndex;
+  var ct = audio.currentTime + lyricOffset, newIdx = currentLyricIndex;
   for (var i = 0; i < lyrics.length; i++) { if (lyrics[i].time <= ct) newIdx = i; else break; }
   if (newIdx !== currentLyricIndex) {
     ['lyricsContainer','fsLyricsContainer'].forEach(function(containerId) {

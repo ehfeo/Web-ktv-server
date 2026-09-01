@@ -174,7 +174,7 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 	videoCodecUpper := strings.ToUpper(videoCodec)
 
 	ext := strings.ToLower(filepath.Ext(foundPath))
-	audioExtensions := []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma", ".ape"}
+	audioExtensions := []string{".mp3", ".wav", ".flac", ".aac", ".m4a", ".m4r", ".alac", ".ogg", ".oga", ".opus", ".wma", ".ape", ".aiff", ".aif", ".amr", ".dts", ".dff", ".dsf", ".sacd", ".tak", ".tta", ".wv", ".mka"}
 	isAudioFile := false
 	for _, ae := range audioExtensions {
 		if ext == ae {
@@ -681,10 +681,19 @@ func findMediaFileUncached(name string) string {
 
 // isMediaExtension 判断是否为媒体文件扩展名
 func isMediaExtension(ext string) bool {
+	return isMediaExt2(ext)
+}
+
+// isMediaExt2 根据扩展名判断是否为支持的媒体文件
+func isMediaExt2(ext string) bool {
+	ext = strings.ToLower(ext)
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
 	switch ext {
-	case ".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma", ".ape",
+	case ".mp3", ".wav", ".flac", ".aac", ".m4a", ".m4r", ".alac", ".ogg", ".oga", ".opus", ".wma", ".ape", ".aiff", ".aif", ".amr", ".dts", ".dff", ".dsf", ".sacd", ".tak", ".tta", ".wv", ".mka",
 		".mp4", ".mkv", ".avi", ".mov", ".wmv", ".rm", ".rmvb", ".ts", ".webm",
-		".mpg", ".mpeg", ".flv":
+		".mpg", ".mpeg", ".flv", ".m2ts", ".mts", ".m2t", ".3gp", ".3g2", ".m4v", ".vob", ".ogv", ".asf", ".divx", ".f4v", ".mxf", ".wtv":
 		return true
 	}
 	return false

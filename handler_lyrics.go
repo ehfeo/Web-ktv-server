@@ -28,6 +28,7 @@ func LyricsHandler(w http.ResponseWriter, r *http.Request) {
 	// 优先读取同名 .lrc 文件
 	lrcPath := foundPath[:len(foundPath)-len(filepath.Ext(foundPath))] + ".lrc"
 	if data, err := os.ReadFile(lrcPath); err == nil && len(data) > 0 {
+		w.Header().Set("X-Lyrics-Source", "local")
 		w.Write(data)
 		return
 	}
@@ -39,11 +40,21 @@ func LyricsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 本地 .lrc 与内嵌歌词均无 → 在线搜索下载（保存为 .lrc 以便下次命中）
 	if lyrics == "" {
-		http.Error(w, "未找到歌词", 404)
+		var source string
+		lyrics, source = lyricSearchOnline(foundPath, fileName)
+		if lyrics == "" {
+			http.Error(w, "未找到歌词", 404)
+			return
+		}
+		w.Header().Set("X-Lyrics-Source", source)
+		saveLyricsAsLRC(foundPath, lyrics)
+		w.Write([]byte(lyrics))
 		return
 	}
 
+	w.Header().Set("X-Lyrics-Source", "embedded")
 	saveLyricsAsLRC(foundPath, lyrics)
 
 	w.Write([]byte(lyrics))
