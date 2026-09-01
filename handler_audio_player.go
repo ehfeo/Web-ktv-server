@@ -10,6 +10,7 @@ func AudioPlayerHandler(w http.ResponseWriter, r *http.Request) {
 <head>
 <meta charset="UTF-8">
 <title>KTV 音频播放</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;flex-direction:column;font-family:Microsoft YaHei,sans-serif;color:#fff}

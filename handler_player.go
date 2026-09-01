@@ -10,6 +10,7 @@ func PlayerHandler(w http.ResponseWriter, r *http.Request) {
 <head>
 <meta charset="UTF-8">
 <title>KTV 播放屏</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 *{margin:0;padding:0}
 body{width:100vw;height:100vh;overflow:hidden;background:linear-gradient(135deg,#1e2d3a 0%,#1a252f 40%,#151f28 100%)}

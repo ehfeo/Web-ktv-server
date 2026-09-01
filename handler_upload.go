@@ -19,6 +19,7 @@ func UploadPageHandler(w http.ResponseWriter, r *http.Request) {
 <head>
 <meta charset="UTF-8">
 <title>上传歌曲</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{width:100vw;height:100vh;background:#1a252f;display:flex;flex-direction:column;align-items:center;font-family:Microsoft YaHei,sans-serif;color:#ecf0f1;padding:30px}

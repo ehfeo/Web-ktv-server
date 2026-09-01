@@ -20,6 +20,7 @@ func MissingPageHandler(w http.ResponseWriter, r *http.Request) {
 <head>
 <meta charset="UTF-8">
 <title>缺歌登记</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei,sans-serif}
 body{background:#1a252f;color:#ecf0f1;padding:20px;min-height:100vh}

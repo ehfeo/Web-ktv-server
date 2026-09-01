@@ -12,6 +12,7 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
 <head>
     <meta charset="UTF-8">
     <title>KTV 点歌机设置</title>
+    <link rel="icon" href="/favicon.ico">
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei}
         body{background:#1a252f;color:#ecf0f1;padding:20px;min-height:100vh}

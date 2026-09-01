@@ -13,6 +13,7 @@ func MobilePageHandler(w http.ResponseWriter, r *http.Request) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>KTV 点歌</title>
+<link rel="icon" href="/favicon.ico">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei,-apple-system,sans-serif}
 html,body{width:100%;height:100%;overflow:hidden;background:#1a252f;color:#ecf0f1}

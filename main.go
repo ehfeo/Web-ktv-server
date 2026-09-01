@@ -153,6 +153,7 @@ func startServer() error {
 	go startQRClient() // 仅外接模式启动客户端连接
 
 	http.HandleFunc("/", IndexHandler)
+		http.HandleFunc("/favicon.ico", FaviconHandler)
 		http.HandleFunc("/player", PlayerHandler)
 		http.HandleFunc("/audio-player", AudioPlayerHandler)
 		http.HandleFunc("/settings", SettingsHandler)

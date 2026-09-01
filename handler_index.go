@@ -18,6 +18,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 <head>
     <meta charset="UTF-8">
     <title>KTV 双屏点歌机 - 控制台</title>
+    <link rel="icon" href="/favicon.ico">
     <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei}
         body{background:#1a252f;color:#ecf0f1}
