@@ -2,14 +2,15 @@ package main
 
 import (
 	"encoding/json"
-	"math/rand"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode"
 
+	"github.com/mozillazg/go-pinyin"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 )
@@ -259,6 +260,32 @@ func computePinyinInitials(s string) string {
 			buf.WriteString(pinyinInitial(r))
 		}
 		// 跳过其他字符（数字、标点、空格等）
+	}
+	return buf.String()
+}
+
+// computePinyinFull 计算字符串中所有汉字的拼音全拼（小写、不带声调）
+// 英文、数字原样保留（转小写）；标点、空格等分隔符跳过。
+// 例如："张国荣-风继续吹" → "zhangguorongfengjixuchui"；"Beyond-海阔天空" → "beyondhaikuotiankong"
+func computePinyinFull(s string) string {
+	args := pinyin.NewArgs()
+	args.Style = pinyin.Normal
+	var buf strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+			buf.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			buf.WriteRune(r + 32) // 转小写
+		case r >= '0' && r <= '9':
+			buf.WriteRune(r)
+		case unicode.Is(unicode.Han, r):
+			py := pinyin.Pinyin(string(r), args)
+			if len(py) > 0 && len(py[0]) > 0 {
+				buf.WriteString(py[0][0])
+			}
+		}
+		// 其他字符（标点、空格等）跳过
 	}
 	return buf.String()
 }

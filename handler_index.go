@@ -102,6 +102,10 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         .page-btn.active{background:#428bca;border-color:#3578b5;color:#fff}
         .page-btn:disabled{background:#1e2d3d;color:#5a6b7d;cursor:not-allowed;box-shadow:none;border-color:#2c3e50}
         .loading{text-align:center;color:#95a5a6;padding:20px}
+        .song-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#95a5a6;padding:30px;text-align:center}
+        .song-empty-title{font-size:20px;color:#bdc3c7;margin-bottom:14px}
+        .song-empty-git{font-size:14px;color:#7f97ab;line-height:1.7}
+        .song-empty-git a{color:#f0ad4e;text-decoration:underline;word-break:break-all}
         .nav-page{position:fixed;top:0;left:0;width:100%;height:100%;background:#1a252f;z-index:1000;display:none;overflow-y:auto}
         .nav-page.active{display:block}
         .nav-content{max-width:700px;margin:0 auto;padding:30px 20px}
@@ -535,6 +539,15 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
     function switchTrack(trackIndex){
         lastTrackIndex = trackIndex;
+        // 点击原唱/伴奏（音轨）时，才校验浏览器是否开启音频轨道实验功能；
+        // 仅用于点播/不唱歌时不强制此校验（校验由 checkAudioTrackSupport 判定，勿在进入系统时强制）
+        if (trackIndex === 0 || trackIndex === 1) {
+            if (!checkAudioTrackSupport()) {
+                // 弹出一个可复制地址的引导页（替代无法复制的 alert），按欢迎页逻辑操作
+                window.open('/track-flag', 'ktvTrackFlag', 'width=760,height=680,resizable=yes,scrollbars=yes');
+                return;
+            }
+        }
         var o = document.getElementById("btnOrigin");
         var a = document.getElementById("btnAcc");
         if(trackIndex === 0){
@@ -989,7 +1002,14 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     function renderSongList(songs) {
         var songList = document.getElementById("songList");
         if (songs.length === 0) {
-            songList.innerHTML = '<div class="loading">暂无曲目</div>';
+            var hasKw = (currentKeyword || '').trim().length > 0;
+            if (hasKw) {
+                // 搜索结果为空：展示项目 git 地址便于用户反馈/更新
+                songList.innerHTML = '<div class="song-empty"><div class="song-empty-title">未找到相关曲目</div>' +
+                    '<div class="song-empty-git">本项目开源地址：<a href="https://github.com/ehfeo/Web-ktv-server" target="_blank" rel="noopener">github.com/ehfeo/Web-ktv-server</a></div></div>';
+            } else {
+                songList.innerHTML = '<div class="loading">暂无曲目</div>';
+            }
             return;
         }
 
@@ -1269,12 +1289,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             selfCheckData = data;
             renderSelfCheckInfo(data);
 
-            // 音轨切换检测
-            if (!checkAudioTrackSupport()) {
-                renderTrackNotice();
-            }
-
             // 始终显示欢迎页面（让用户了解系统状态）
+            // 注意：音轨实验功能校验已移到点击"原唱/伴奏"按钮时，不再每次进入强制确认
             navPage.classList.add('active');
             mainPage.style.display = 'none';
 
@@ -1285,12 +1301,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 btn.textContent = '仍有问题，强制进入';
             }
         }).catch(function(){
-            // 自检接口失败，降级：仅检查音轨
-            if (!checkAudioTrackSupport()) {
-                renderTrackNotice();
-                navPage.classList.add('active');
-                mainPage.style.display = 'none';
-            }
+            // 自检接口失败，降级：仅显示欢迎页，不强制音轨校验
+            navPage.classList.add('active');
+            mainPage.style.display = 'none';
         });
     }
 
@@ -1820,6 +1833,119 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 	template.Must(template.New("ktv").Parse(tpl)).Execute(w, nil)
 }
 
+// TrackFlagPageHandler /track-flag 音轨切换实验功能引导页
+// 在点击"原唱/伴奏"但浏览器未开启 Experimental Web Platform features 时弹出，
+// 替代无法复制的 alert 提示：以可复制地址 + 步骤 + 确认的方式引导用户开启实验功能。
+func TrackFlagPageHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音轨切换实验功能设置</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Microsoft YaHei",system-ui,sans-serif;background:linear-gradient(135deg,#1e2d3a 0%,#1a252f 40%,#151f28 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;color:#ecf0f1}
+.card{background:#22303c;border:1px solid #34495e;border-radius:10px;padding:26px 28px;max-width:560px;width:100%;box-shadow:0 6px 20px rgba(0,0,0,0.35)}
+h1{font-size:19px;margin-bottom:6px;color:#f39c12}
+.sub{font-size:13px;color:#9aa9b8;margin-bottom:18px;line-height:1.6}
+.step{background:#2b3b47;border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:14px;line-height:1.7}
+.step b{color:#5bc0de}
+.url-row{display:flex;gap:8px;align-items:center;margin:16px 0}
+.url-row input{flex:1;padding:9px 10px;background:#15202b;border:1px solid #46607a;border-radius:6px;color:#7fd3a8;font-size:13px;outline:none;user-select:all}
+.url-row button{padding:9px 18px;border:none;border-radius:6px;background:#428bca;color:#fff;font-size:14px;cursor:pointer}
+.url-row button:hover{background:#3276b1}
+.confirm{display:flex;align-items:flex-start;gap:8px;margin:16px 0 6px;font-size:14px;cursor:pointer;color:#c9d4de}
+.confirm input{width:18px;height:18px;margin-top:1px;flex-shrink:0;cursor:pointer}
+.btn-fail{display:none;color:#e74c3c;background:rgba(231,76,60,0.12);border:1px solid #e74c3c;border-radius:6px;font-size:14px;margin-top:12px}
+.actions{display:flex;gap:10px;justify-content:space-between;margin-top:14px;flex-wrap:wrap}
+.actions button{padding:10px 20px;border:none;border-radius:6px;font-size:15px;cursor:pointer}
+.btn-primary{background:#5cb85c;color:#fff}
+.btn-primary:hover{background:#4cae4c}
+.btn-primary:disabled{background:#4a5a66;color:#8296a5;cursor:not-allowed}
+.btn-ghost{background:#34495e;color:#d5dde5}
+.btn-ghost:hover{background:#3d546e}
+.tip{font-size:12px;color:#7f97ab;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>&#9888; 音轨切换实验功能设置</h1>
+  <div class="sub">当前浏览器未启用音轨切换实验功能，<b>原唱/伴奏切换将无法使用</b>。请按下方步骤开启。</div>
+
+  <div class="step">1. 复制下方地址，粘贴到浏览器<b>地址栏</b>并回车打开<br></div>
+  <div class="url-row">
+    <input type="text" id="flagUrl" readonly>
+    <button onclick="copyUrl()">复制地址</button>
+  </div>
+
+  <div class="step">2. 找到 <b>Experimental Web Platform features</b> 选项，设为 <b>Enabled</b></div>
+  <div class="step">3. 点击页面底部的 <b>Relaunch</b> 按钮重启浏览器</div>
+
+  <label class="confirm">
+    <input type="checkbox" id="cfm" onchange="onConfirm()">
+    <span>我已阅读上述提示并了解如何开启音轨切换功能</span>
+  </label>
+
+  <div class="btn-fail" id="btnFail">当前浏览器不支持音轨切换实验功能，建议使用 Chrome 或 Edge 浏览器。</div>
+
+  <div class="actions">
+    <button class="btn-ghost" onclick="backTo()">返回点歌系统</button>
+    <button class="btn-primary" id="enterBtn" disabled onclick="backTo()">我已开启，返回系统</button>
+  </div>
+  <div class="tip">提示：重启浏览器后重新进入点歌系统，再点击原唱/伴奏即可切换音轨。</div>
+</div>
+<script>
+function detectBrowser(){
+  var ua=navigator.userAgent;
+  if(ua.indexOf('Edg/')>=0) return 'edge';
+  if(ua.indexOf('Chrome')>=0) return 'chrome';
+  if(ua.indexOf('Firefox')>=0) return 'firefox';
+  if(ua.indexOf('Safari')>=0) return 'safari';
+  return 'other';
+}
+function init(){
+  var b=detectBrowser();
+  var url='chrome://flags/#enable-experimental-web-platform-features';
+  if(b==='edge') url='edge://flags/#enable-experimental-web-platform-features';
+  document.getElementById('flagUrl').value=url;
+  if(b==='edge'||b==='chrome'){
+    document.getElementById('btnFail').style.display='none';
+  } else {
+    document.getElementById('flagUrl').readOnly=true;
+    document.getElementById('flagUrl').value='';
+    document.getElementById('btnFail').style.display='block';
+  }
+}
+function copyUrl(){
+  var i=document.getElementById('flagUrl');
+  var val=document.getElementById('flagUrl').value;
+  if(!val){return;}
+  i.select();
+  i.setSelectionRange(0,99999);
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){navigator.clipboard.writeText(val);}
+    else{document.execCommand('copy');}
+  }catch(e){document.execCommand('copy');}
+  alert('地址已复制！请粘贴到浏览器地址栏并按回车打开。');
+}
+function onConfirm(){
+  var ok=document.getElementById('cfm').checked;
+  document.getElementById('enterBtn').disabled=!ok;
+}
+function backTo(){
+  // 由 window.open 打开的窗口直接关闭，否则回到主页
+  if(window.opener && !window.opener.closed){window.close();return;}
+  try{history.length>1?history.back():location.href='/';}catch(e){location.href='/';}
+}
+init();
+</script>
+</body>
+</html>`))
+}
+
 func SongSearchHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
@@ -1839,9 +1965,10 @@ func SongSearchHandler(w http.ResponseWriter, r *http.Request) {
 	for i, item := range getCachedMediaList() {
 		lowerName := cachedLowerNames[i]
 		lowerPinyin := cachedLowerPinyins[i]
+		lowerPinyinFull := cachedLowerPinyinsFull[i]
 		match := true
 		for _, kw := range keywords {
-			if !strings.Contains(lowerName, kw) && !strings.Contains(lowerPinyin, kw) {
+			if !strings.Contains(lowerName, kw) && !strings.Contains(lowerPinyin, kw) && !strings.Contains(lowerPinyinFull, kw) {
 				match = false
 				break
 			}

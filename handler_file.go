@@ -23,6 +23,12 @@ func FileHandler(w http.ResponseWriter, r *http.Request) {
 	// 优先用findMediaFile（内存映射表O(1)查找，避免Walk磁盘扫描）
 	foundPath := findMediaFile(name)
 	if foundPath != "" {
+		// 审核拦截：未经审核的上传资源不允许点播
+		if !reviewFileAllowed(foundPath) {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			http.Error(w, "该资源正在审核中，暂不可点播。", 403)
+			return
+		}
 		http.ServeFile(w, r, foundPath)
 		return
 	}
@@ -36,6 +42,11 @@ func FileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		uploadFilePath := uploadDirPath + string(os.PathSeparator) + fileNameOnly
 		if _, err := os.Stat(uploadFilePath); err == nil {
+			if !reviewFileAllowed(uploadFilePath) {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				http.Error(w, "该资源正在审核中，暂不可点播。", 403)
+				return
+			}
 			log.Printf("[FileHandler] 在上传目录找到文件: %s", fileNameOnly)
 			http.ServeFile(w, r, uploadFilePath)
 			return

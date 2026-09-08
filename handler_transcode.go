@@ -169,6 +169,14 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 审核拦截：未经审核的上传文件不允许申请转码（否则转码产物会绕过播放审核）
+	if !reviewFileAllowed(foundPath) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"success":false,"message":"该资源正在审核中，暂不可点播。","needsTranscode":false}`))
+		return
+	}
+
 	videoCodec, _, _, allAudioBrowserSupported, _, _, audioCodecStr := getMediaInfo(foundPath)
 	videoIsH264 := strings.EqualFold(videoCodec, "h264")
 	videoCodecUpper := strings.ToUpper(videoCodec)

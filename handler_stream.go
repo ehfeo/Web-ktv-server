@@ -10,8 +10,67 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
+	"unsafe"
 )
+
+// ---- 实时转码推流资源护栏 ----
+// 手机端点播页每个客户端都会经 /api/stream 拉起一个 ffmpeg 实时转码进程。
+// 当客户端较多时，并发 ffmpeg 进程会占用大量内存。这里限制并发推流数，
+// 并在系统物理内存紧张时拒绝新推流，避免把服务器内存撑爆导致程序崩溃。
+var streamPressure struct {
+	active int32 // 当前并发进行的 ffmpeg 实时推流数
+}
+
+const maxConcurrentStreams = 6 // 并发 ffmpeg 推流上限
+
+// memoryStatusEx 对应 Windows MEMORYSTATUSEX 结构
+type memoryStatusEx struct {
+	Length               uint32
+	MemoryLoad           uint32
+	TotalPhys            uint64
+	AvailPhys            uint64
+	TotalPageFile        uint64
+	AvailPageFile        uint64
+	TotalVirtual         uint64
+	AvailVirtual         uint64
+	AvailExtendedVirtual uint64
+}
+
+// systemMemoryPressure 检测系统物理内存是否不足（Windows GlobalMemoryStatusEx）。
+// 规则：剩余物理内存 < 1GB 或 剩余占比 < 8% 判定为内存不足。
+func systemMemoryPressure() bool {
+	k32 := syscall.NewLazyDLL("kernel32.dll")
+	globalMemoryStatusEx := k32.NewProc("GlobalMemoryStatusEx")
+	if globalMemoryStatusEx.Find() != nil {
+		return false
+	}
+	var m memoryStatusEx
+	m.Length = uint32(unsafe.Sizeof(m))
+	ret, _, _ := globalMemoryStatusEx.Call(uintptr(unsafe.Pointer(&m)))
+	if ret == 0 || m.TotalPhys == 0 {
+		return false
+	}
+	availMB := m.AvailPhys / (1024 * 1024)
+	availPercent := float64(m.AvailPhys) / float64(m.TotalPhys) * 100
+	if availMB < 1024 || availPercent < 8 {
+		return true
+	}
+	return false
+}
+
+// streamCapacityOK 判断当前是否还能再开一个实时转码推流。
+func streamCapacityOK() bool {
+	if atomic.LoadInt32(&streamPressure.active) >= maxConcurrentStreams {
+		return false
+	}
+	if systemMemoryPressure() {
+		return false
+	}
+	return true
+}
 
 // buildStreamArgs 构建FFmpeg流媒体转码参数
 func buildStreamArgs(foundPath string, trackIndex int, quality string, encoder string) []string {
@@ -121,6 +180,10 @@ func tryStream(w http.ResponseWriter, r *http.Request, ffmpegPath string, args [
 		fmt.Printf("[流媒体] 启动FFmpeg失败: %v\n", err)
 		return false
 	}
+
+	// 实时推流进程已启动，计入并发数（函数结束时自动归还，覆盖所有 return 路径）
+	atomic.AddInt32(&streamPressure.active, 1)
+	defer atomic.AddInt32(&streamPressure.active, -1)
 
 	// 用管道读取stderr，检测编码器初始化是否成功
 	var stderrBuf strings.Builder
@@ -309,6 +372,21 @@ func StreamHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[StreamHandler] file=%s trackIndex=%d quality=%s", filepath.Base(name), trackIndex, quality)
 	if foundPath == "" {
 		http.Error(w, "文件未找到", 404)
+		return
+	}
+
+	// 审核拦截：未经审核的上传资源不允许点播
+	if !reviewFileAllowed(foundPath) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		http.Error(w, "该资源正在审核中，暂不可点播。", 403)
+		return
+	}
+
+	// 资源护栏：并发推流达到上限或系统内存不足时，拒绝新的实时转码推流
+	if !streamCapacityOK() {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"success":false,"message":"服务器资源不足不支持实时转码推流"}`))
 		return
 	}
 

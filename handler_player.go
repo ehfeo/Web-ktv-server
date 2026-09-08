@@ -50,11 +50,27 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .play-info .current{color:#5bc0de;margin-bottom:5px;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
 .play-info .next{color:#f0ad4e;text-shadow:0 1px 3px rgba(0,0,0,0.8)}
 #trackWarningBar{background:#d9534f !important;box-shadow:0 2px 6px rgba(0,0,0,0.3) !important;border-radius:0 !important;position:fixed;top:0;left:0;right:0;z-index:2000;text-shadow:none}
+#idleTip{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:5;pointer-events:none}
+.idle-card{background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:34px 52px;text-align:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 8px 30px rgba(0,0,0,0.4)}
+.idle-title{font-size:34px;font-weight:bold;color:#5bc0de;letter-spacing:2px;text-shadow:0 2px 4px rgba(0,0,0,0.5)}
+.idle-sub{margin-top:6px;font-size:18px;color:#c9d4de}
+.idle-git{margin-top:20px;font-size:14px;color:#9aa9b8;border-top:1px solid rgba(255,255,255,0.12);padding-top:14px;pointer-events:auto}
+.idle-git a{color:#f0ad4e;text-decoration:underline;word-break:break-all}
+@media screen and (min-aspect-ratio: 16/10) {
+  #idleTip{left:0}
+}
 </style>
 </head>
 <body>
 <div class="video-container" id="videoContainer">
   <div id="videoBox"></div>
+  <div id="idleTip">
+    <div class="idle-card">
+      <div class="idle-title">🎤 KTV 点歌系统</div>
+      <div class="idle-sub">等待点播中…</div>
+      <div class="idle-git">项目地址：<a href="https://github.com/ehfeo/Web-ktv-server" target="_blank" rel="noopener">github.com/ehfeo/Web-ktv-server</a></div>
+    </div>
+  </div>
   <div class="lyrics-container" id="lyricsContainer">
     <div class="lyrics" id="lyrics"></div>
   </div>
@@ -584,17 +600,8 @@ function switchTrack(targetIdx) {
   // 1. 先判断浏览器是否支持 audioTracks API（实验功能是否开启）
   if (!video.audioTracks) {
     clearTimeout(retryTimer);
-    var reason = '无法切换原唱/伴奏：当前浏览器不支持音轨切换功能。\n\n';
-    if (mediaAudioTrackCount === 0) {
-      reason += '注意：该歌曲本身也没有音频轨道（源文件问题）。\n\n';
-    } else if (mediaAudioTrackCount === 1) {
-      reason += '注意：该歌曲仅有1条音频轨道，即使开启实验功能也无法切换（源文件问题）。\n\n';
-    }
-    reason += '可能原因：\n';
-    reason += '1. 未开启 Experimental Web Platform features 实验功能\n';
-    reason += '2. 浏览器版本过旧不支持 AudioTracks API\n\n';
-    reason += '解决方法：\n请在浏览器地址栏打开 chrome://flags/#enable-experimental-web-platform-features 并设为 Enabled，然后重启浏览器。';
-    alert(reason);
+    // 弹出一个可复制地址的引导页（替代无法复制的 alert），按欢迎页逻辑操作
+    window.open('/track-flag', 'ktvTrackFlag', 'width=760,height=680,resizable=yes,scrollbars=yes');
     return;
   }
 
@@ -730,6 +737,9 @@ function playVideo(url, name, type, path) {
   try {
     prevFullscreenElement = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
   } catch(e) {}
+  // 开始播放时隐藏空闲占位（git 项目信息）
+  var idleTipEl = document.getElementById('idleTip');
+  if (idleTipEl) idleTipEl.style.display = 'none';
   // 重建video元素，清除所有旧事件监听器
   document.getElementById("videoBox").innerHTML = '<video autoplay controls style="display: block;"></video>';
   video = document.querySelector("video");
@@ -823,9 +833,12 @@ function playVideo(url, name, type, path) {
   });
 
   video.onerror = function(e) {
-    if (isTranscoding || switchingSong) {
+    if (isTranscoding) {
       return;
     }
+    // 媒体加载失败（含审核拦截返回403导致无法触发canplay）时必须复位切换标志，
+    // 否则 switchingSong 一直为 true，后续错误/播放流程会被错误跳过
+    switchingSong = false;
     document.getElementById('btnTranscode').style.display = 'block';
     var errorMsg = '';
     if (e.target.error) {
@@ -846,6 +859,24 @@ function playVideo(url, name, type, path) {
         default:
           errorMsg = '媒体播放发生错误';
       }
+    }
+    // 媒体加载失败时，探测当前媒体URL是否被审核拦截（403），给出明确"审核中"提示
+    var curSrc = '';
+    try { curSrc = video.currentSrc || video.src; } catch(_) {}
+    if (curSrc) {
+      try {
+        var probe = new XMLHttpRequest();
+        probe.open('GET', curSrc, false); // 同步探测，获取403响应体
+        probe.withCredentials = false;
+        probe.send();
+        if (probe.status === 403) {
+          var bodyText = '';
+          try { bodyText = probe.responseText || ''; } catch(_) {}
+          if (bodyText.indexOf('审核中') !== -1) {
+            errorMsg = '该资源正在审核中，暂不可点播。';
+          }
+        }
+      } catch(e) { /* 探测失败则用原错误信息 */ }
     }
     if (errorMsg) {
       alert(errorMsg);

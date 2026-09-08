@@ -29,6 +29,13 @@ func MusicModeStreamHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 审核拦截：未经审核的上传资源不允许点播
+	if !reviewFileAllowed(filePath) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		http.Error(w, "该资源正在审核中，暂不可点播。", 403)
+		return
+	}
+
 	ffmpegPath := getFFmpegPath()
 	ffprobePath := getFFprobePath()
 

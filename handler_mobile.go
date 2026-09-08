@@ -412,6 +412,41 @@ var videoEl = document.getElementById('videoPlayer');
 var audioEl = document.getElementById('audioPlayer');
 var mediaDuration = 0; // 服务端获取的媒体时长（流媒体无法从video.duration获取）
 
+// 媒体加载失败时探测响应体：v视频/音频经 /api/stream 实时转码推流时，
+// 若服务端因并发推流过多或内存不足会被拒绝，需给出明确提示而非安静失败。
+function probeMobileMediaError(target) {
+  var src = '';
+  try { src = target.currentSrc || target.src; } catch(e) {}
+  if (!src) return;
+  var probe = new XMLHttpRequest();
+  probe.open('GET', src, false); // 同步探测，读取错误响应体
+  probe.withCredentials = false;
+  try { probe.send(); } catch(e) { return; }
+  if (probe.status === 403 || probe.status === 503 || probe.status === 500) {
+    var msg = '';
+    try {
+      var body = probe.responseText || '';
+      if (body.charAt(0) === '{') {
+        var obj = JSON.parse(body);
+        msg = (obj && obj.message) || '';
+      }
+    } catch(e) {}
+    if (msg) {
+      if (typeof showToast === 'function') showToast(msg);
+      else alert(msg);
+    }
+  }
+}
+if (!window._mobileMediaErrorProbeInstalled) {
+  window._mobileMediaErrorProbeInstalled = true;
+  // 用捕获阶段监听，覆盖 videoEl 以及每次重建的 <audio> 元素
+  document.addEventListener('error', function(e) {
+    var t = e.target;
+    if (!t || (t.tagName !== 'VIDEO' && t.tagName !== 'AUDIO')) return;
+    probeMobileMediaError(t);
+  }, true);
+}
+
 // 每次音频播放重建一个全新的 <audio> 元素并重新绑定事件。
 // 参考 fftplayer：iOS/安卓上反复复用同一元素更换 src 后 MediaElementSource 常失效(有声音但 analyser 无数据)，
 // 用全新元素 + 每次重建 source 规避。旧 source 一并断开销毁。
@@ -775,6 +810,17 @@ function checkAndRequestTranscode(idx) {
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onload = function() {
         stopDiskSleepPolling();
+        if (xhr.status === 403) {
+            try {
+                var errMsg = JSON.parse(xhr.responseText);
+                errMsg = errMsg && errMsg.message ? errMsg.message : '该资源正在审核中，暂不可点播。';
+                item.status = "blocked";
+                item.blockMsg = errMsg;
+                renderQueue();
+                if (typeof showToast === 'function') showToast(errMsg);
+            } catch(e) {}
+            return;
+        }
         if (xhr.status === 200) {
             try {
                 var data = JSON.parse(xhr.responseText);

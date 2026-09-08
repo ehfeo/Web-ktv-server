@@ -23,6 +23,7 @@ type MediaFile struct {
 	Category    string `json:"category"`    // 曲种（从文件名解析）
 	Size        int64  `json:"size"`        // 文件大小（字节）
 	PinyinInit  string `json:"pinyinInit"`   // 预计算的拼音首字母，用于拼音搜索
+	PinyinFull  string `json:"pinyinFull"`   // 预计算的拼音全拼，用于全拼搜索
 }
 
 // parseFilenameFields 按规则 歌手-歌名-语种-歌曲类别 解析文件名
@@ -146,6 +147,7 @@ func getMediaListWithProgress(callback ScanProgressCallback) []MediaFile {
 				Language:   language,
 				Category:   category,
 				PinyinInit: computePinyinInitials(strings.TrimSuffix(name, filepath.Ext(name))),
+				PinyinFull: computePinyinFull(strings.TrimSuffix(name, filepath.Ext(name))),
 			})
 
 			// 回调进度
@@ -185,10 +187,12 @@ func getSingerList() []string {
 var (
 	cachedFixedMediaList  []MediaFile // 配置中的固定目录缓存
 	cachedUploadMediaList []MediaFile // 上传目录缓存
-	uploadDirPath         string      // 上传目录绝对路径
+	uploadDirPath         string      // 上传目录绝对路径（待审核）
+	approvedDirPath       string      // 已审核目录绝对路径（Approved，通过后文件移入）
 	cachedMergedMediaList []MediaFile // 拼接+去重后的完整缓存
 	cachedLowerNames      []string    // 与 cachedMergedMediaList 对应的小写名称，加速搜索
 	cachedLowerPinyins    []string    // 与 cachedMergedMediaList 对应的小写拼音首字母，加速搜索
+	cachedLowerPinyinsFull []string   // 与 cachedMergedMediaList 对应的小写拼音全拼，加速搜索
 )
 
 // pathToAbsFile 媒体路径到绝对文件路径的映射（从内存曲库构建，O(1)查找）
@@ -260,6 +264,7 @@ func scanDir(dir string) []MediaFile {
 			Category:   category,
 			Size:       info.Size(),
 			PinyinInit: computePinyinInitials(strings.TrimSuffix(name, filepath.Ext(name))),
+			PinyinFull: computePinyinFull(strings.TrimSuffix(name, filepath.Ext(name))),
 		})
 
 		return nil
@@ -297,12 +302,14 @@ func rebuildMergedCache() {
 
 	cachedMergedMediaList = result
 
-	// 预计算小写名称和拼音首字母，加速搜索
+	// 预计算小写名称、拼音首字母、拼音全拼，加速搜索
 	cachedLowerNames = make([]string, len(result))
 	cachedLowerPinyins = make([]string, len(result))
+	cachedLowerPinyinsFull = make([]string, len(result))
 	for i, item := range result {
 		cachedLowerNames[i] = strings.ToLower(item.Name)
 		cachedLowerPinyins[i] = strings.ToLower(item.PinyinInit)
+		cachedLowerPinyinsFull[i] = strings.ToLower(item.PinyinFull)
 	}
 
 	// 重建路径→绝对路径映射表，供 findMediaFile O(1) 查找
@@ -362,15 +369,20 @@ func lookupAbsPathByBasename(filename string) (string, bool) {
 	return "", false
 }
 
-// rescanUploadDir 仅重新扫描上传目录
+// rescanUploadDir 重新扫描上传目录（待审核）+ 已审核目录（Approved），并写盘缓存
 func rescanUploadDir() {
-	if uploadDirPath == "" {
-		return
+	var list []MediaFile
+	if uploadDirPath != "" {
+		list = append(list, scanDir(uploadDirPath)...)
 	}
-	fmt.Printf("[Media] 重新扫描上传目录: %s\n", uploadDirPath)
-	cachedUploadMediaList = scanDir(uploadDirPath)
-	fmt.Printf("[Media] 上传目录扫描完成 - 共 %d 首歌曲\n", len(cachedUploadMediaList))
+	if approvedDirPath != "" {
+		list = append(list, scanDir(approvedDirPath)...)
+	}
+	cachedUploadMediaList = list
+	fmt.Printf("[Media] 上传/已审核目录扫描完成 - 共 %d 首歌曲\n", len(cachedUploadMediaList))
 	rebuildMergedCache()
+	// 立即把最新的列表写盘，防止重启加载旧缓存时丢失本次上传/审核的文件
+	saveMediaCache()
 }
 
 const mediaCacheFile = "ktv_media_cache.json"
@@ -433,6 +445,8 @@ func loadMediaCache() bool {
 	if exeErr == nil {
 		uploadDirPath = filepath.Join(filepath.Dir(exePath), "uploads")
 		os.MkdirAll(uploadDirPath, 0755)
+		approvedDirPath = filepath.Join(filepath.Dir(exePath), "Approved")
+		os.MkdirAll(approvedDirPath, 0755)
 	}
 
 	cachedFixedMediaList = cache.Fixed
@@ -443,18 +457,18 @@ func loadMediaCache() bool {
 	restoreDirField(cachedFixedMediaList)
 	restoreDirField(cachedUploadMediaList)
 
-	// 旧版缓存没有 PinyinInit 字段（原 json tag 是 "-"），
+	// 旧版缓存可能缺少 PinyinInit / PinyinFull 字段（原 json tag 是 "-"），
 	// 加载后为空字符串，导致拼音搜索失效。
-	// 检查并补全：扫描列表中第一个文件，若 PinyinInit 为空则认为整个缓存需要补全
+	// 检查并补全：扫描列表中第一个文件，若任一拼音字段为空则认为整个缓存需要补全
 	needsPinyinRebuild := false
-	if len(cachedFixedMediaList) > 0 && cachedFixedMediaList[0].PinyinInit == "" {
+	if len(cachedFixedMediaList) > 0 && (cachedFixedMediaList[0].PinyinInit == "" || cachedFixedMediaList[0].PinyinFull == "") {
 		needsPinyinRebuild = true
 	}
-	if !needsPinyinRebuild && len(cachedUploadMediaList) > 0 && cachedUploadMediaList[0].PinyinInit == "" {
+	if !needsPinyinRebuild && len(cachedUploadMediaList) > 0 && (cachedUploadMediaList[0].PinyinInit == "" || cachedUploadMediaList[0].PinyinFull == "") {
 		needsPinyinRebuild = true
 	}
 	if needsPinyinRebuild {
-		fmt.Printf("[Media] 旧缓存缺少拼音首字母字段，重新计算...\n")
+		fmt.Printf("[Media] 旧缓存缺少拼音字段，重新计算...\n")
 		recomputePinyinInitials(cachedFixedMediaList)
 		recomputePinyinInitials(cachedUploadMediaList)
 		// 补全后保存一次新格式缓存，下次启动直接命中
@@ -462,17 +476,26 @@ func loadMediaCache() bool {
 		fmt.Printf("[Media] 已重新保存包含拼音字段的缓存\n")
 	}
 
-	rebuildMergedCache()
+	// 重扫上传目录使缓存与实际磁盘同步：
+	// 上次运行后新上传、或上次异常退出未写盘的上传文件，在此都会被重新纳入，
+	// 避免重启后搜不到待审核的 uploads 条目。
+	rescanUploadDir()
+
 	fmt.Printf("[Media] 已从缓存加载曲库 (保存时间: %s, 共 %d 首歌曲)\n", cache.SavedAt, len(cachedMergedMediaList))
 	return true
 }
 
-// recomputePinyinInitials 重新计算列表中每个 MediaFile 的 PinyinInit 字段
+// recomputePinyinInitials 重新计算列表中每个 MediaFile 的拼音首字母与全拼字段
 func recomputePinyinInitials(list []MediaFile) {
 	for i := range list {
-		if list[i].PinyinInit == "" {
+		if list[i].PinyinInit == "" || list[i].PinyinFull == "" {
 			name := strings.TrimSuffix(list[i].Name, filepath.Ext(list[i].Name))
-			list[i].PinyinInit = computePinyinInitials(name)
+			if list[i].PinyinInit == "" {
+				list[i].PinyinInit = computePinyinInitials(name)
+			}
+			if list[i].PinyinFull == "" {
+				list[i].PinyinFull = computePinyinFull(name)
+			}
 		}
 	}
 }
@@ -547,6 +570,8 @@ func initMediaCache() {
 	if err == nil {
 		uploadDirPath = filepath.Join(filepath.Dir(exePath), "uploads")
 		os.MkdirAll(uploadDirPath, 0755)
+		approvedDirPath = filepath.Join(filepath.Dir(exePath), "Approved")
+		os.MkdirAll(approvedDirPath, 0755)
 	}
 
 	// 扫描固定目录（配置中的 mediaDirs，跳过上传目录避免重复）
@@ -559,10 +584,13 @@ func initMediaCache() {
 		cachedFixedMediaList = append(cachedFixedMediaList, list...)
 	}
 
-	// 扫描上传目录
+	// 扫描上传目录（待审核）+ 已审核目录（Approved）
 	cachedUploadMediaList = []MediaFile{}
 	if uploadDirPath != "" {
-		cachedUploadMediaList = scanDir(uploadDirPath)
+		cachedUploadMediaList = append(cachedUploadMediaList, scanDir(uploadDirPath)...)
+	}
+	if approvedDirPath != "" {
+		cachedUploadMediaList = append(cachedUploadMediaList, scanDir(approvedDirPath)...)
 	}
 
 	total := len(cachedFixedMediaList) + len(cachedUploadMediaList)
@@ -595,15 +623,16 @@ func getMediaListPaged(page, pageSize int, keyword string) ([]MediaFile, int) {
 		return result, total
 	}
 
-	// 有关键词：使用预计算的小写名称和拼音首字母搜索
+	// 有关键词：使用预计算的小写名称、拼音首字母、拼音全拼搜索
 	keywords := strings.Fields(strings.ToLower(keyword))
 	var filtered []MediaFile
 	for i, item := range cachedMergedMediaList {
 		lowerName := cachedLowerNames[i]
 		lowerPinyin := cachedLowerPinyins[i]
+		lowerPinyinFull := cachedLowerPinyinsFull[i]
 		match := true
 		for _, kw := range keywords {
-			if !strings.Contains(lowerName, kw) && !strings.Contains(lowerPinyin, kw) {
+			if !strings.Contains(lowerName, kw) && !strings.Contains(lowerPinyin, kw) && !strings.Contains(lowerPinyinFull, kw) {
 				match = false
 				break
 			}
