@@ -103,6 +103,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         .page-btn:disabled{background:#1e2d3d;color:#5a6b7d;cursor:not-allowed;box-shadow:none;border-color:#2c3e50}
         .loading{text-align:center;color:#95a5a6;padding:20px}
         .song-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#95a5a6;padding:30px;text-align:center}
+        .song-list.empty-mode{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
         .song-empty-title{font-size:20px;color:#bdc3c7;margin-bottom:14px}
         .song-empty-git{font-size:14px;color:#7f97ab;line-height:1.7}
         .song-empty-git a{color:#f0ad4e;text-decoration:underline;word-break:break-all}
@@ -1003,15 +1004,14 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         var songList = document.getElementById("songList");
         if (songs.length === 0) {
             var hasKw = (currentKeyword || '').trim().length > 0;
-            if (hasKw) {
-                // 搜索结果为空：展示项目 git 地址便于用户反馈/更新
-                songList.innerHTML = '<div class="song-empty"><div class="song-empty-title">未找到相关曲目</div>' +
-                    '<div class="song-empty-git">本项目开源地址：<a href="https://github.com/ehfeo/Web-ktv-server" target="_blank" rel="noopener">github.com/ehfeo/Web-ktv-server</a></div></div>';
-            } else {
-                songList.innerHTML = '<div class="loading">暂无曲目</div>';
-            }
+            var emptyTitle = hasKw ? '未找到相关曲目' : '暂无曲目';
+            // 列表为空：居中展示项目 git 地址便于用户反馈/更新
+            songList.innerHTML = '<div class="song-empty"><div class="song-empty-title">' + emptyTitle + '</div>' +
+                '<div class="song-empty-git">本项目开源地址：<a href="https://github.com/ehfeo/Web-ktv-server" target="_blank" rel="noopener">github.com/ehfeo/Web-ktv-server</a></div></div>';
+            songList.classList.add('empty-mode');
             return;
         }
+        songList.classList.remove('empty-mode');
 
         var html = '';
         for (var i = 0; i < songs.length; i++) {

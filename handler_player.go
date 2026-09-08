@@ -658,6 +658,12 @@ var switchingSong = false;
 var nextSongCooldown = false;
 var keydownRegistered = false;
 
+// 显示空闲占位（项目 git 信息），用于初始空闲与播放结束后
+function showIdleTip() {
+  var el = document.getElementById('idleTip');
+  if (el) el.style.display = 'flex';
+}
+
 function onVideoMetadataLoaded() {
   if (metadataCheckTimer) clearTimeout(metadataCheckTimer);
   metadataCheckTimer = setTimeout(function() {
@@ -822,6 +828,8 @@ function playVideo(url, name, type, path) {
 
   video.onended = function() {
     if (switchingSong) return;
+    // 播放结束：回到空闲占位（项目 git 信息），若无下一首则保持显示
+    showIdleTip();
     if (window.opener && !window.opener.closed) {
       window.opener.postMessage({action: "ended"}, "*");
     }
