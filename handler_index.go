@@ -47,9 +47,13 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         .song-item:active{background:#1e2d3d;box-shadow:0 1px 2px rgba(0,0,0,0.15)}
         .song-item .song-name{color:#bdc3c7;transition:color 0.15s}
         .song-item:hover .song-name{color:#ecf0f1}
+        .everything-warn{margin:14px 6px 2px;padding:10px 14px;background:#f0ad4e;border:2px solid #d9534f;border-radius:5px;color:#7a4d00;font-weight:bold;font-size:15px;text-align:center;grid-column:1/-1}
+        .everything-sep{margin:10px 6px 4px;padding:6px;text-align:center;color:#9b59b6;font-weight:bold;font-size:15px;letter-spacing:2px;grid-column:1/-1;border-bottom:2px dashed #9b59b6}
+        .everything-list{display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));grid-template-rows:repeat(auto-fill, 60px);gap:8px;grid-column:1/-1;width:100%}
+        .everything-list .song-item{border-left-color:#9b59b6}
         .ktv-right{width:33.33%;background:#1e2d3d;display:flex;flex-direction:column;box-shadow:-2px 0 8px rgba(0,0,0,0.15)}
-        .control-bar{padding:10px 15px;background:#2c3e50;border-bottom:1px solid #3a5068;display:flex;justify-content:center;gap:15px;flex-wrap:wrap;min-height:56px;align-items:center}
-        .control-btn{width:80px;height:40px;border-radius:4px;border:1px solid transparent;background:linear-gradient(180deg,#5a6b7d,#4a5568);color:#ecf0f1;font-size:16px;font-weight:bold;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
+        .control-bar{padding:8px 12px;background:#2c3e50;border-bottom:1px solid #3a5068;display:flex;justify-content:center;gap:10px;flex-wrap:wrap;min-height:56px;align-items:center}
+        .control-btn{min-width:56px;height:36px;width:auto;padding:0 10px;border-radius:4px;border:1px solid transparent;background:linear-gradient(180deg,#5a6b7d,#4a5568);color:#ecf0f1;font-size:15px;font-weight:bold;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s;white-space:nowrap}
         .control-btn:hover{background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;box-shadow:0 3px 6px rgba(0,0,0,0.25)}
         .control-btn:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
         .control-btn.active{background:linear-gradient(180deg,#5cb85c,#4cae4c);border-color:#3d8b3d;box-shadow:0 2px 4px rgba(0,0,0,0.2);color:#fff}
@@ -102,7 +106,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         .page-btn.active{background:#428bca;border-color:#3578b5;color:#fff}
         .page-btn:disabled{background:#1e2d3d;color:#5a6b7d;cursor:not-allowed;box-shadow:none;border-color:#2c3e50}
         .loading{text-align:center;color:#95a5a6;padding:20px}
-        .song-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#95a5a6;padding:30px;text-align:center}
+        .song-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100%;width:100%;color:#95a5a6;padding:30px;text-align:center}
         .song-list.empty-mode{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
         .song-empty-title{font-size:20px;color:#bdc3c7;margin-bottom:14px}
         .song-empty-git{font-size:14px;color:#7f97ab;line-height:1.7}
@@ -185,6 +189,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                     <span class="toggle-slider"></span>
                     音乐
                 </label>
+                <label class="toggle-switch" title="扩搜：调用 Everything 扩充搜索本机媒体文件（需在设置中启用，首次开启需输入审核密码）">
+                    <input type="checkbox" id="expandMode" onchange="onExpandModeChange()">
+                    <span class="toggle-slider"></span>
+                    扩搜
+                </label>
             </div>
         </div>
         <div class="browse-tabs">
@@ -220,6 +229,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             <button class="control-btn" onclick="nextSong()">下一首</button>
             <button id="btnOrigin" class="control-btn active" onclick="switchTrack(0)">原唱</button>
             <button id="btnAcc" class="control-btn" onclick="switchTrack(1)">伴奏</button>
+            <button id="btnVB" class="control-btn" onclick="switchVB()">音量提升</button>
             <button class="control-btn" onclick="openSettings()">设置</button>
         </div>
         <div class="queue-area">
@@ -256,6 +266,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     var rows = 4;
     var transcodePollInterval = null;
     var currentPlayingIndex = -1;
+    var vbEnabled = false; // 全局音量提升开关（主控端发起，广播到播放屏）
 
     // 播放队列持久化（12小时有效期）
     var QUEUE_STORAGE_KEY = 'ktv_playQueue';
@@ -573,6 +584,15 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    function switchVB(){
+        vbEnabled = !vbEnabled;
+        var b = document.getElementById("btnVB");
+        if(b) b.classList.toggle("active", vbEnabled);
+        if(playerWin && !playerWin.closed){
+            playerWin.postMessage({action:"volumeBoost",enabled:vbEnabled},'*');
+        }
+    }
+
     function playNow(path,name,type){
         queue = [];
         currentPlayingIndex = -1;
@@ -587,7 +607,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         fetch('/api/increment-play?name=' + encodeURIComponent(path), {method:'POST'}).catch(function(){});
     }
 
-    function addToQueue(path,name,type,displayName,insertNext){
+    function addToQueue(path,name,type,displayName,insertNext,abspath){
         // 已点歌曲去重检查（按名称）
         for(var i=0;i<queue.length;i++){
             if(queue[i].name === name){
@@ -597,7 +617,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
         var songName = (displayName||name).replace(/\.[^.]+$/, '');
         showStatus('📋 加入队列: ' + songName);
-        var queueItem = {path:path,name:name,type:type,displayName:displayName||'',status:"checking",transcodeProgress:0,requestKey:path};
+        var direct = !!abspath; // Everything 结果：按绝对路径直接播放（不审核、不转码）
+        var queueItem = {path:path,name:name,type:type,displayName:displayName||'',status:direct?'checking':"checking",transcodeProgress:0,requestKey:path,abs:abspath||'',direct:direct};
         if(insertNext && currentPlayingIndex >= 0 && currentPlayingIndex < queue.length - 1){
             queue.splice(currentPlayingIndex + 1, 0, queueItem);
         } else {
@@ -615,12 +636,23 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
         checkAndRequestTranscode(newIdx);
         // 统计点播次数
-        fetch('/api/increment-play?name=' + encodeURIComponent(path), {method:'POST'}).catch(function(){});
+        if(!direct){
+            fetch('/api/increment-play?name=' + encodeURIComponent(path), {method:'POST'}).catch(function(){});
+        }
     }
 
     function checkAndRequestTranscode(idx){
         if(idx < 0 || idx >= queue.length) return;
         var item = queue[idx];
+
+        // Everything 直接播放项：按绝对路径原生播放，不走（也无法走）曲库映射的预转码检查。
+        // 若浏览器直放编码不支持，由播放器自动回退到实时转码推流。
+        if(item.direct){
+            item.status = "ready";
+            renderQueue();
+            setTimeout(tryAutoPlay, 600);
+            return;
+        }
 
         // 省流模式下，视频文件无需预转码，直接标记ready
         if(isStreamMode() && !isAudioFile(item.name)){
@@ -729,7 +761,15 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     function renderQueue(){
         var box = document.getElementById("queueList");
         var html = "";
-        for(var i=0;i<queue.length;i++){
+        if(queue.length === 0){
+            // 队列为空：居中显示项目 git 地址
+            box.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:45vh;gap:8px';
+            html = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px">' +
+                '<div style="font-size:18px;color:#bdc3c7;margin-bottom:12px">队列为空，点一首歌开始吧</div>' +
+                '<div style="font-size:14px;color:#7f97ab;line-height:1.7">本项目开源地址：<a href="https://github.com/ehfeo/Web-ktv-server" target="_blank" rel="noopener" style="color:#f0ad4e;text-decoration:underline;word-break:break-all">github.com/ehfeo/Web-ktv-server</a></div></div>';
+        } else {
+            box.style.cssText = '';
+            for(var i=0;i<queue.length;i++){
             var item = queue[i];
             var isCurrent = (i === currentPlayingIndex);
             html += '<div class="queue-item" style="' + (isCurrent ? 'border-left:3px solid #5cb85c;background:#243447;' : '') + '">';
@@ -773,6 +813,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             }
             html += '<button class="del-btn" onclick="delQueue('+i+')">删除</button>';
             html += '</div>';
+            }
         }
         box.innerHTML = html;
         if(playerWin && !playerWin.closed){
@@ -814,6 +855,12 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if(queue.length === 0) clearQueueStorage(); else saveQueueToStorage();
     }
 
+    function pushVolumeBoost(){
+        if(playerWin && !playerWin.closed){
+            playerWin.postMessage({action:"volumeBoost",enabled:vbEnabled},'*');
+        }
+    }
+
     function playQueueItem(idx){
         if(idx<0||idx>=queue.length) return;
         var item = queue[idx];
@@ -826,7 +873,10 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
         // 构建播放URL
         var url;
-        if(isAudio){
+        // Everything 直接播放项：按绝对路径直接取文件（不审核、不转码）
+        if(item.direct){
+            url = '/file?abs=1&p=' + encodeURIComponent(item.path);
+        } else if(isAudio){
             if(needsAudioTranscode(item.name)){
                 url = '/api/music-mode-stream?name='+encodeURIComponent(item.path)+'&trackIndex=0&_t='+Date.now();
             } else {
@@ -872,10 +922,15 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             } else {
                 playerWin.location.replace(openUrl);
             }
+            // 页面切换后：把全局音量提升状态推给新页（页面已重载，VB 状态会重置）
+            setTimeout(function(){
+                if(playerWin && !playerWin.closed) pushVolumeBoost();
+            }, 400);
             // 1.5s 后同步队列（新页面 message listener 应已就绪）
             setTimeout(function(){
                 if(playerWin && !playerWin.closed){
                     playerWin.postMessage({action:"syncQueue",list:queue,currentPlayingIndex:currentPlayingIndex,sessionId:mySessionId},'*');
+                    pushVolumeBoost();
                 }
             }, 1500);
             renderQueue();
@@ -884,6 +939,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 
         // 同页面且已就绪，直接 postMessage play
         playerWin.postMessage({action:"play",url:url,type:item.type,name:item.name,path:item.path},'*');
+        pushVolumeBoost();
         renderQueue();
     }
 
@@ -990,6 +1046,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 totalPages = data.totalPages;
                 currentPage = data.page;
                 updatePagination();
+                appendEverythingResults();
             } else {
                 songList.innerHTML = '<div class="loading">加载失败</div>';
             }
@@ -1071,6 +1128,154 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     var searchTimeout = null;
+
+    // ---- Everything 扩充搜索 ----
+    var everythingCache = {};
+    var expandEnabled = false;    // 前端“扩搜”开关状态
+    var expandAuthed = false;     // 本次页面会话内是否已通过审核密码验证
+    var everythingCfgEnabled = false; // 设置里是否启用了 Everything
+    // 在 HTML onclick 内联 JS 字符串中安全转义（反斜杠与单引号）
+    function jsStr(s){ if(!s) return ''; return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+    function removeEverythingBlock(){
+        var songList = document.getElementById("songList");
+        if(!songList) return;
+        var els = songList.querySelectorAll('.everything-root');
+        for(var i=els.length-1;i>=0;i--){
+            if(els[i].parentNode) els[i].parentNode.removeChild(els[i]);
+        }
+    }
+
+    // 扩搜开关：需“设置启用 everything”+“前端扩搜开关”两个条件同时满足才调用。
+    function onExpandModeChange(){
+        var cb = document.getElementById('expandMode');
+        if(!cb || !cb.checked){
+            expandEnabled = false;
+            removeEverythingBlock();
+            return;
+        }
+        fetch('/api/config').then(function(r){return r.json();}).then(function(cfg){
+            everythingCfgEnabled = !!(cfg && cfg.everythingEnabled);
+            if(!everythingCfgEnabled){
+                cb.checked = false;
+                expandEnabled = false;
+                showToast('请先在“设置”中启用 Everything（填写 Everything.exe 路径）');
+                return;
+            }
+            if(!expandAuthed){
+                // 首次开启：需输入与审核页一致的密码，本页面会话有效
+                openExpandAuthModal(function(){
+                    expandAuthed = true;
+                    expandEnabled = true;
+                    appendEverythingResults();
+                });
+            } else {
+                expandEnabled = true;
+                appendEverythingResults();
+            }
+        }).catch(function(){
+            cb.checked = false;
+            expandEnabled = false;
+            showToast('读取配置失败，请重试');
+        });
+    }
+
+    // 审核密码验证弹窗
+    function openExpandAuthModal(onSuccess){
+        var existing = document.getElementById('expandAuthModal');
+        if(existing) existing.remove();
+        var m = document.createElement('div');
+        m.id = 'expandAuthModal';
+        m.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        m.innerHTML =
+            '<div style="background:#fff;border-radius:6px;padding:30px 34px;max-width:420px;width:90%;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,0.35);">' +
+            '<div style="font-size:20px;color:#333;margin-bottom:6px;font-weight:bold;">开启 Everything 扩搜</div>' +
+            '<div style="font-size:14px;color:#777;margin-bottom:18px;line-height:1.7;">首次使用需输入与审核页一致的密码验证。</div>' +
+            '<input type="password" id="expandPwd" placeholder="审核密码" style="width:100%;box-sizing:border-box;padding:10px 12px;font-size:16px;border:1px solid #ccc;border-radius:4px;outline:none;background:#fff;color:#333;" />' +
+            '<div id="expandAuthMsg" style="color:#d9534f;font-size:13px;height:20px;margin-top:6px;"></div>' +
+            '<div style="margin-top:18px;display:flex;gap:10px;justify-content:center;">' +
+            '<button onclick="submitExpandAuth()" style="padding:9px 28px;background:linear-gradient(180deg,#428bca,#337ab9);border:1px solid #2a6496;border-radius:4px;color:#fff;font-size:15px;cursor:pointer;">验证开启</button>' +
+            '<button onclick="closeExpandAuth()" style="padding:9px 28px;background:linear-gradient(180deg,#95a5a6,#7f8c8d);border:1px solid #6c7a7d;border-radius:4px;color:#fff;font-size:15px;cursor:pointer;">取消</button>' +
+            '</div></div>';
+        document.body.appendChild(m);
+        window._expandAuthCB = onSuccess;
+        var inp = document.getElementById('expandPwd');
+        if(inp){ inp.focus(); inp.onkeydown = function(ev){ if(ev.key==='Enter') submitExpandAuth(); }; }
+    }
+    function closeExpandAuth(){
+        window._expandAuthCB = null;
+        var m = document.getElementById('expandAuthModal');
+        if(m) m.remove();
+    }
+    function submitExpandAuth(){
+        var inp = document.getElementById('expandPwd');
+        var msg = document.getElementById('expandAuthMsg');
+        var pw = inp ? inp.value : '';
+        fetch('/api/everything/unlock', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:pw})})
+            .then(function(r){ return r.json().catch(function(){ return {success:false,message:'验证失败，请重试'}; }); })
+            .then(function(res){
+                if(res && res.success){
+                    var cb = window._expandAuthCB;
+                    window._expandAuthCB = null;
+                    closeExpandAuth();
+                    if(cb) cb();
+                } else {
+                    if(msg) msg.textContent = (res && res.message) || '密码错误';
+                    if(inp){ inp.value=''; inp.focus(); }
+                }
+            })
+            .catch(function(){ if(msg) msg.textContent = '网络错误，请重试'; });
+    }
+
+    function fetchEverything(keyword, cb){
+        keyword = (keyword||'').trim();
+        if(!keyword) return cb(null);
+        if(everythingCache[keyword]) return cb(everythingCache[keyword]);
+        // 未解锁/未开启时不调用
+        if(!expandEnabled || !everythingCfgEnabled) return cb(null);
+        fetch('/api/everything?q=' + encodeURIComponent(keyword)).then(function(r){return r.json();}).then(function(data){
+            if(data && data.ok) everythingCache[keyword] = data;
+            cb(data);
+        }).catch(function(){ cb(null); });
+    }
+
+    function appendEverythingResults(){
+        var songList = document.getElementById("songList");
+        if(!songList) return;
+        // 移除旧的 Everything 区块
+        removeEverythingBlock();
+        // 两个开关缺一不可才触发扩搜
+        if(!expandEnabled || !everythingCfgEnabled) return;
+        fetchEverything(currentKeyword, function(data){
+            if(!data) return;
+            if(!data.ok){
+                var em = data.error || '扩搜失败';
+                showToast('扩搜失败：' + em);
+                return;
+            }
+            if(!data.items || data.items.length === 0){
+                showToast('Everything 未找到相关媒体文件');
+                return;
+            }
+            // 扩搜元素直接作为 songList 网格的子元素插入，与普通条目共用同一多列网格布局
+            // 仅有扩搜结果时：普通列表为空会加 empty-mode(flex 竖排置中)，须先移除，
+            // 让容器保持多列网格，并隐藏“未找到”占位，避免挤占首格
+            songList.classList.remove('empty-mode');
+            var se = songList.querySelector('.song-empty');
+            if(se) se.style.display = 'none';
+            var html = '';
+            html += '<div class="everything-warn everything-root">⚠ ' + data.warn + '（共 ' + data.count + ' 个）</div>';
+            html += '<div class="everything-sep everything-root">—— Everything 扩充结果 ——</div>';
+            for (var i=0;i<data.items.length;i++){
+                var it = data.items[i];
+                var fontSize = calculateFontSize(it.name);
+                html += '<div class="song-item everything-root" data-from="everything" onclick="addToQueue(\'' + jsStr(it.path) + '\',\'' + jsStr(it.name) + '\',\'' + jsStr(it.type) + '\',\'\',false,true)">';
+                html += '<span class="song-name" style="font-size:'+fontSize+'px;">' + it.name + '</span>';
+                html += '</div>';
+            }
+            songList.insertAdjacentHTML('beforeend', html);
+        });
+    }
 
     function filterList(){
         if (searchTimeout) {
@@ -1156,6 +1361,11 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             var qxhr = new XMLHttpRequest();
             qxhr.open('GET', qs, true);
             qxhr.send();
+        } else if(e.data.action==="volumeBoostState"){
+            // 播放屏上报音量提升状态，同步主控端按钮
+            vbEnabled = !!e.data.enabled;
+            var vb = document.getElementById("btnVB");
+            if(vb) vb.classList.toggle("active", vbEnabled);
         }
     });
 
@@ -1179,6 +1389,16 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if (!songList) return;
 
         const rect = songList.getBoundingClientRect();
+        // 容器尚未可见/未完成布局时宽高为 0，若此时计算会把列数列成 1，
+        // 导致曲目渲染成单列窄条（首次冷启动常见，刷新后即正常）。
+        // 这里延迟重试，让任意竞态都能自愈。
+        if (rect.width <= 0 || rect.height <= 0) {
+            window._layoutRetryCount = (window._layoutRetryCount || 0) + 1;
+            if (window._layoutRetryCount > 60) { window._layoutRetryCount = 0; return; }
+            setTimeout(calculateOptimalLayout, 250);
+            return;
+        }
+        window._layoutRetryCount = 0;
         const containerWidth = rect.width;
         const containerHeight = rect.height;
 
@@ -1239,7 +1459,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                                 }
                                 if(data.outputPath && data.status === "completed"){
                                     queue[idx].path = data.outputPath;
-                                    queue[idx].name = data.outputPath.split('/').pop();
+                                    queue[idx].name = data.outputPath.split(/[\\/]/).pop();
                                     queue[idx].status = "ready";
                                     renderQueue();
                                     tryAutoPlay();
@@ -1522,6 +1742,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         var mainPage = document.getElementById('mainPage');
         navPage.classList.remove('active');
         mainPage.style.display = 'flex';
+        // 进入主界面后容器已可见，重算网格列数，确保曲目列表首次打开即按正确列数渲染
+        calculateOptimalLayout();
     }
 
     window.onload = function(){

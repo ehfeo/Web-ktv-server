@@ -16,6 +16,12 @@ func AudioPlayerHandler(w http.ResponseWriter, r *http.Request) {
 body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;flex-direction:column;font-family:Microsoft YaHei,sans-serif;color:#fff}
 .song-title{font-size:26px;padding:12px 20px;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,0.4);background:#1e2d3a;border-bottom:1px solid #2c3e50}
 .content-area{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;position:relative}
+#idleTip{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;z-index:5;pointer-events:none}
+.idle-card{background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:32px 50px;text-align:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 8px 30px rgba(0,0,0,0.4)}
+.idle-card .idle-title{font-size:30px;font-weight:bold;color:#5bc0de;letter-spacing:2px;text-shadow:0 2px 4px rgba(0,0,0,0.5)}
+.idle-card .idle-sub{margin-top:6px;font-size:17px;color:#c9d4de}
+.idle-card .idle-git{margin-top:18px;font-size:14px;color:#9aa9b8;border-top:1px solid rgba(255,255,255,0.12);padding-top:14px;pointer-events:auto}
+.idle-card .idle-git a{color:#f0ad4e;text-decoration:underline;word-break:break-all}
 .lyrics-container{flex:1;overflow-y:auto;overflow-x:hidden;text-align:center;padding:0 20px;mask-image:linear-gradient(transparent,black 10%,black 90%,transparent);-webkit-mask-image:linear-gradient(transparent,black 10%,black 90%,transparent)}
 .lyrics-line{margin:10px 0;opacity:0.35;font-size:18px;transition:all 0.4s ease;white-space:nowrap;display:block;width:fit-content;margin-left:auto;margin-right:auto;max-width:100%;color:rgba(255,255,255,0.5);text-shadow:0 1px 2px rgba(0,0,0,0.3)}
 .lyrics-line.active{opacity:1;font-size:24px;font-weight:bold;color:#5bc0de;text-shadow:0 1px 3px rgba(0,0,0,0.3)}
@@ -94,6 +100,13 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
 <div id="fpsDisplay" style="position:fixed;top:8px;left:8px;z-index:2147483000;background:rgba(0,0,0,0.55);color:#4caf50;font:12px Consolas,monospace;padding:2px 8px;border-radius:4px;pointer-events:none;user-select:none">FPS: --</div>
 <div class="song-title" id="songTitle">等待播放...</div>
 <div class="content-area" id="contentArea">
+  <div id="idleTip">
+    <div class="idle-card">
+      <div class="idle-title">🎤 KTV 音频播放</div>
+      <div class="idle-sub">等待播放…</div>
+      <div class="idle-git">项目地址：<a href="https://github.com/ehfeo/Web-ktv-server" target="_blank" rel="noopener">github.com/ehfeo/Web-ktv-server</a></div>
+    </div>
+  </div>
   <div class="lyrics-container theme-smart-blue trans-zoom" id="lyricsContainer" style="display:none">
     <div id="lyrics"></div>
   </div>
@@ -107,6 +120,7 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
     <button id="btnWaveform" class="active" onclick="userSetView('waveform')">波形</button>
     <button id="btnSpectrumBar" onclick="userSetView('spectrumbar')">频谱条</button>
     <button id="btnSpectrumCurve" onclick="userSetView('spectrumcurve')">频谱曲线</button>
+    <button id="btnVB" onclick="toggleVB()" title="自适应音量提升（算法⑦门控归一化+前瞻限幅，目标 RMS=-5dBFS）">自适应音量</button>
     <select id="selWaveformTime" onchange="setWaveformTime(this.value)" title="波形时长" style="display:none">
       <option value="15">15ms</option>
       <option value="50">50ms</option>
@@ -259,6 +273,7 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
       <label style="display:flex;align-items:center;gap:6px">歌手<input id="lyricPickArtist" type="text" placeholder="歌手" style="background:#202f3d;border:1px solid #2c3e50;border-radius:4px;color:#fff;padding:5px 8px;min-width:140px"></label>
       <button onclick="doLyricSearch()" style="background:#428bca;color:#fff;border:none;border-radius:4px;padding:5px 16px;cursor:pointer">搜索歌词</button>
     </div>
+    <div id="lyricPickPath" style="padding:8px 14px;border-bottom:1px solid #2c3e50;color:#9aa9b8;font-size:13px;word-break:break-all;background:rgba(0,0,0,0.15)"></div>
     <div id="lyricPickerList" style="flex:1;overflow-y:auto;padding:8px"></div>
   </div>
 </div>
@@ -427,6 +442,126 @@ function postTrackMode() {
   }
 }
 
+// ===== 自适应音量提升：算法⑦ 思路（门控归一化 + 峰值限制），基于原生 GainNode 实现 =====
+// 当前部分浏览器不支持 AudioWorklet，且 ScriptProcessor 会引入块边界噪声；
+// 故采用原生 GainNode（浏览器自带，绝不产生拼接噪声）+ 周期读取 Analyser 的 RMS/峰值，
+// 用 setTargetAtTime 平滑调整增益，实现"目标 RMS-5 归一化 + 噪声门(不抬底噪) + 峰值限幅"。
+// 关闭时增益为 1，纯透传，零延迟零噪声。
+var VB = { enabled: false, target: -5, pending: undefined };
+var vbGain = null;   // 原生增益节点（始终在链路中，关闭时 =1）
+var vbAna = null;    // 响度/峰值测量节点（接源前，前瞻检测用）
+var vbDelay = null;  // 前瞻延迟节点（把输出延后一点，让限幅器有时间捕获瞬时峰值）
+var vbTimer = null;
+var vbMsq = 1e-12;   // 平滑后的能量均值（用于 RMS，抑制跳变）
+var vbDb = 0;        // 当前应用增益（dB）
+var vbHeld = 0;      // 低于噪声门持续毫秒数
+var VB_LOOK = 0.014; // 前瞻时间(秒)：输出相对检测延迟 14ms，配合 10ms 轮询捕获突发峰值
+
+// 建立 源->前瞻延迟->增益->分路；并附加检测分支(取源前、未延迟)。
+// 增益按"当前输入采样"算出，调度到"该采样从前瞻缓冲产出时"生效，等效原测试页的前瞻限幅。
+function vbAttach(ctx, src) {
+  if(!src || !splitter) return;
+  try {
+    vbDelay = ctx.createDelay(0.06); vbDelay.delayTime.value = VB_LOOK;
+    vbGain = ctx.createGain(); vbGain.gain.value = 1;
+  } catch(e){ vbGain = null; return; }
+  vbAna = ctx.createAnalyser();
+  vbAna.fftSize = 256;
+  vbAna.smoothingTimeConstant = 0.0;
+  vbAna.minDecibels = -100;
+  try { src.connect(vbDelay); vbDelay.connect(vbGain); vbGain.connect(splitter); src.connect(vbAna); } catch(e){}
+}
+
+function vbReset() {
+  vbStopTimer();
+  vbGain = null; vbDelay = null; vbAna = null;
+  vbMsq = 1e-12; vbDb = 0; vbHeld = 0;
+  VB.enabled = false;
+}
+
+function vbStopTimer() { if(vbTimer){ clearInterval(vbTimer); vbTimer = null; } }
+
+// 每 10ms 调用：测响度/峰值，目标增益取"峰值限幅与归一化两者较保守者"，
+// 调度到前瞻缓冲产出时生效：快速攻击捕获瞬时峰值(钢琴/鼓点不破音)，慢速释放避免抽吸。
+function vbPoll() {
+  if(!vbAna || !vbGain || !audioCtx) return;
+  var td = new Float32Array(vbAna.fftSize);
+  try { vbAna.getFloatTimeDomainData(td); } catch(e) { return; }
+  var s = 0, pk = 0;
+  for(var i=0;i<td.length;i++){ var a=td[i]; s += a*a; var ab=a<0?-a:a; if(ab>pk) pk=ab; }
+  var msq = s/td.length;
+  vbMsq = vbMsq*0.92 + msq*0.08;              // 平滑能量，抑制瞬时抖动
+  var rmsDb = 20*Math.log10(Math.sqrt(vbMsq)+1e-12);
+  var gateDb = -50, maxBoost = 24, minGain = -60, ceil = -1;
+  // 峰值限幅目标(真峰值不超过 ceil dBTP)
+  var lim = ceil - ( 20*Math.log10(pk+1e-12) );
+  if(lim > maxBoost) lim = maxBoost;
+  if(lim < minGain)  lim = minGain;
+  var norm;
+  if(rmsDb < gateDb){                        // 噪声门内：不抬底噪；超时后缓慢退回 0dB
+    vbHeld += 10;
+    if(vbHeld > 600){ vbDb += (0-vbDb)*(0.03); }
+    norm = vbDb;
+  } else {
+    vbHeld = 0;
+    norm = VB.target - rmsDb;                // 归一化：把 RMS 拉到目标
+    if(norm > maxBoost) norm = maxBoost;
+    if(norm < minGain)  norm = minGain;
+  }
+  var targetDb = (lim < norm) ? lim : norm;  // 取较保守者：峰值优先，保证不破音
+  if(targetDb < vbDb) vbDb += (targetDb - vbDb)*0.5;   // 快速攻击
+  else                vbDb += (targetDb - vbDb)*0.1;   // 慢速释放
+  var glin = Math.pow(10, vbDb/20);
+  var now = audioCtx.currentTime;
+  var t0 = now + 0.004;                      // 略提前开始攻击，峰值产出时即已到位
+  try { vbGain.gain.cancelScheduledValues(now); } catch(e){}
+  vbGain.gain.setValueAtTime(vbGain.gain.value, now);
+  vbGain.gain.setTargetAtTime(glin, t0, 0.004);
+}
+
+function syncVBUI() {
+  var b = document.getElementById('btnVB');
+  if (b) b.classList.toggle('active', !!VB.enabled);
+}
+function reportVB() {
+  if (window.opener && !window.opener.closed) {
+    window.opener.postMessage({action: "volumeBoostState", enabled: !!VB.enabled}, "*");
+  }
+}
+// 全局开关入口：既可由本页按钮触发，也可由主控端 postMessage 远程触发。
+// setVB(on) 幂等：同一状态不重复执行；链路未建立时记录 pending，建立后自动应用。
+function setVB(on, silent) {
+  on = !!on;
+  VB.pending = on;          // 始终记录期望状态：切歌/重建音频上下文后自动恢复
+  if (!vbGain) {
+    syncVBUI();
+    return;
+  }
+  if (on === VB.enabled) return;
+  VB.enabled = on;
+  syncVBUI();
+  if (on) {
+    vbDb = 0;
+    vbStopTimer();
+    vbPoll();
+    vbTimer = setInterval(vbPoll, 10);
+    if (!silent) showTip('自适应音量提升：开（目标 RMS -' + (-VB.target) + 'dBFS）');
+  } else {
+    vbStopTimer();
+    vbDb = 0;
+    try {
+      var nw = audioCtx.currentTime;
+      vbGain.gain.cancelScheduledValues(nw);
+      vbGain.gain.setTargetAtTime(1, nw, 0.01);
+    } catch(e) {}
+    if (!silent) showTip('自适应音量提升：关');
+  }
+  reportVB();
+}
+function toggleVB() {
+  setVB(!VB.enabled);
+}
+
 function initAudioAnalyser() {
   if (audioCtx) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -436,12 +571,17 @@ function initAudioAnalyser() {
   analyser.minDecibels = -120;
   analyser.maxDecibels = 0;
   audioSource = audioCtx.createMediaElementSource(audio);
-  // 建立声道路由分支：source -> splitter(2ch) -> merger(2ch) -> destination
+  // 建立声道路由分支：source -> [增益(恒在链路,默认1)] -> splitter(2ch) -> merger(2ch) -> destination
   splitter = audioCtx.createChannelSplitter(2);
   merger = audioCtx.createChannelMerger(2);
-  audioSource.connect(splitter);
+  vbReset();
+  vbAttach(audioCtx, audioSource);
   rebuildChannelRouting('stereo');
   merger.connect(audioCtx.destination);
+  // 链路刚建立：应用主控端此前指定的全局音量提升状态
+  if (VB.pending !== undefined && VB.pending !== VB.enabled) {
+    setVB(VB.pending, true);
+  }
   // 默认可视化视图，接入分析分支；非视觉视图/暂停时由setView/事件自动断开
   setAnalyserEnabled(true);
   // 初始化动态范围上限
@@ -1244,6 +1384,8 @@ function lyricShift(d) {
 function openLyricPicker() {
   document.getElementById('lyricPickTitle').value = '';
   document.getElementById('lyricPickArtist').value = '';
+  // 显示当前音频文件绝对路径：有些文件仅有歌名，路径里可能含歌手等信息线索
+  document.getElementById('lyricPickPath').textContent = currentFilePath ? ('当前文件：' + currentFilePath) : ('当前文件：' + (currentFileName || '未知'));
   var list = document.getElementById('lyricPickerList');
   list.innerHTML = '<div style="color:#aaa;padding:20px;text-align:center">输入歌名/歌手后点击“搜索歌词”</div>';
   document.getElementById('lyricPickerMask').style.display = 'block';
@@ -1334,10 +1476,15 @@ function seekAudio(event) {
 
 function setVolume(v) { if(audio) audio.volume = v/100; }
 
+// 空闲占位（项目 git 信息）显隐
+function showIdleTip() { var el = document.getElementById('idleTip'); if (el) el.style.display = 'flex'; }
+function hideIdleTip() { var el = document.getElementById('idleTip'); if (el) el.style.display = 'none'; }
+
 function playAudio(url, name, path) {
   currentFileName = name;
   currentFilePath = path || '';
   document.getElementById('songTitle').textContent = name;
+  hideIdleTip();
   if (!audioCtx) initAudioAnalyser();
   // 切歌时恢复默认动态上限
   dynamicTopDb = defaultTopDb;
@@ -1366,7 +1513,7 @@ function playAudio(url, name, path) {
     }
     updateLyrics();
   };
-  audio.onended = function() { stopAnim(); if(window.opener&&!window.opener.closed) window.opener.postMessage({action:"ended"},"*"); else if(window.parent&&window.parent!==window) window.parent.postMessage({action:"ended"},"*"); };
+  audio.onended = function() { stopAnim(); showIdleTip(); if(window.opener&&!window.opener.closed) window.opener.postMessage({action:"ended"},"*"); else if(window.parent&&window.parent!==window) window.parent.postMessage({action:"ended"},"*"); };
   audio.onerror = function() { stopAnim(); };
 
   showTip("正在播放：" + name);
@@ -1427,6 +1574,9 @@ window.addEventListener("message", function(e) {
   }
   else if (e.data.action === "switchTrack") { // 手机遥控：音轨/声道（音频固定立体声/左/右）
     switchTrack(parseInt(e.data.index, 10));
+  }
+  else if (e.data.action === "volumeBoost") { // 主控端全局音量提升开关
+    setVB(e.data.enabled, true);
   }
 });
 

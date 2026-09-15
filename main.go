@@ -21,6 +21,10 @@ var (
 	audioEncoder   string
 	// 音频实时转码码率（kbps），默认 192k，范围为 32-512k
 	audioTranscodeBitrate = 192
+	// Everything 搜索扩充
+	everythingEnabled = false
+	everythingPath    = ""
+	everythingPort    = ""
 )
 
 const configFile = "ktv_config.json"
@@ -29,6 +33,9 @@ type Config struct {
 	MediaDirs             []string `json:"mediaDirs"`
 	Port                  string   `json:"port"`
 	AudioTranscodeBitrate int      `json:"audioTranscodeBitrate"`
+	EverythingEnabled     bool     `json:"everythingEnabled"`
+	EverythingPath        string   `json:"everythingPath"`
+	EverythingPort        string   `json:"everythingPort"`
 }
 
 func loadConfig() {
@@ -65,8 +72,11 @@ func loadConfig() {
 	if config.AudioTranscodeBitrate >= 32 && config.AudioTranscodeBitrate <= 512 {
 		audioTranscodeBitrate = config.AudioTranscodeBitrate
 	}
-	
-	fmt.Printf("加载配置: mediaDirs=%v, port=%s, audioBitrate=%dk\n", mediaDirs, port, audioTranscodeBitrate)
+	everythingEnabled = config.EverythingEnabled
+	everythingPath = config.EverythingPath
+	everythingPort = config.EverythingPort
+
+	fmt.Printf("加载配置: mediaDirs=%v, port=%s, audioBitrate=%dk, everything=%v\n", mediaDirs, port, audioTranscodeBitrate, everythingEnabled)
 }
 
 func saveConfig() {
@@ -74,6 +84,9 @@ func saveConfig() {
 		MediaDirs:             mediaDirs,
 		Port:                  port,
 		AudioTranscodeBitrate: audioTranscodeBitrate,
+		EverythingEnabled:     everythingEnabled,
+		EverythingPath:        everythingPath,
+		EverythingPort:        everythingPort,
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
@@ -172,6 +185,7 @@ func startServer() error {
 		http.HandleFunc("/api/review/approve", ReviewApproveHandler)
 		http.HandleFunc("/api/review/delete", ReviewDeleteHandler)
 		http.HandleFunc("/api/review/password", ReviewPasswordHandler)
+		http.HandleFunc("/api/everything/unlock", EverythingUnlockHandler)
 		http.HandleFunc("/m", MobilePageHandler)
 		http.HandleFunc("/file", FileHandler)
 		http.HandleFunc("/api/songs", SongListHandler)
@@ -203,6 +217,7 @@ func startServer() error {
 		http.HandleFunc("/api/play-count", PlayCountHandler)
 		http.HandleFunc("/api/increment-play", IncrementPlayHandler)
 	http.HandleFunc("/api/music-mode-stream", MusicModeStreamHandler)
+		http.HandleFunc("/api/everything", EverythingSearchHandler)
 
 	server = &http.Server{
 		Addr: ":" + port,

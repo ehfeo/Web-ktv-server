@@ -8,6 +8,24 @@ import (
 )
 
 func FileHandler(w http.ResponseWriter, r *http.Request) {
+	// Everything 扩充搜索：abs=1&p=绝对路径 时直接提供该文件（绕过上传审核，
+	// 用户已在设置页勾选并明确知悉风险）。仅当 everythingEnabled 且路径为真实媒体文件时响应。
+	if r.URL.Query().Get("abs") == "1" {
+		absPath := r.URL.Query().Get("p")
+		// 播放器会在 URL 之后追加 ?t=时间戳，需剔除以避免破坏真实路径
+		if idx := strings.Index(absPath, "?"); idx != -1 {
+			absPath = absPath[:idx]
+		}
+		if everythingEnabled && absPath != "" {
+			if fi, err := os.Stat(absPath); err == nil && !fi.IsDir() && mediaExtSupported(absPath) {
+				http.ServeFile(w, r, absPath)
+				return
+			}
+		}
+		http.Error(w, "not found", 404)
+		return
+	}
+
 	// 接收文件名，移除URL参数
 	name := r.URL.Query().Get("name")
 	if name == "" {

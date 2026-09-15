@@ -60,24 +60,30 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == http.MethodGet {
 		result := struct {
-			MediaDirs    []string `json:"mediaDirs"`
-			Port         string   `json:"port"`
-			QREnabled    bool     `json:"qrEnabled"`
-			QRServerAddr string   `json:"qrServerAddr"`
-			QRPassword   string   `json:"qrPassword"`
-			QRMode        string   `json:"qrMode"`
-			QRCtrlEnabled bool     `json:"qrCtrlEnabled"`
-			AudioTranscodeBitrate int `json:"audioTranscodeBitrate"`
-		}{
-			MediaDirs:    mediaDirs,
-			Port:         port,
-			QREnabled:    qrEnabled,
-			QRServerAddr: qrServerAddr,
-			QRPassword:   qrPassword,
-			QRMode:       qrMode,
-			QRCtrlEnabled: qrCtrlEnabled,
-			AudioTranscodeBitrate: audioTranscodeBitrate,
-		}
+		MediaDirs    []string `json:"mediaDirs"`
+		Port         string   `json:"port"`
+		QREnabled    bool     `json:"qrEnabled"`
+		QRServerAddr string   `json:"qrServerAddr"`
+		QRPassword   string   `json:"qrPassword"`
+		QRMode        string   `json:"qrMode"`
+		QRCtrlEnabled bool     `json:"qrCtrlEnabled"`
+		AudioTranscodeBitrate int `json:"audioTranscodeBitrate"`
+		EverythingEnabled bool   `json:"everythingEnabled"`
+		EverythingPath    string `json:"everythingPath"`
+		EverythingPort    string `json:"everythingPort"`
+	}{
+		MediaDirs:    mediaDirs,
+		Port:         port,
+		QREnabled:    qrEnabled,
+		QRServerAddr: qrServerAddr,
+		QRPassword:   qrPassword,
+		QRMode:       qrMode,
+		QRCtrlEnabled: qrCtrlEnabled,
+		AudioTranscodeBitrate: audioTranscodeBitrate,
+		EverythingEnabled: everythingEnabled,
+		EverythingPath:    everythingPath,
+		EverythingPort:    everythingPort,
+	}
 		json.NewEncoder(w).Encode(result)
 		return
 	}
@@ -98,6 +104,9 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 			QRMode        string   `json:"qrMode"`
 			QRCtrlEnabled bool     `json:"qrCtrlEnabled"`
 			AudioTranscodeBitrate int `json:"audioTranscodeBitrate"`
+			EverythingEnabled bool   `json:"everythingEnabled"`
+			EverythingPath    string `json:"everythingPath"`
+			EverythingPort    string `json:"everythingPort"`
 		}
 
 		if err := json.Unmarshal(data, &config); err != nil {
@@ -125,6 +134,9 @@ func ConfigHandler(w http.ResponseWriter, r *http.Request) {
 		} else if qrMode == "" {
 			qrMode = "external"
 		}
+		everythingEnabled = config.EverythingEnabled
+		everythingPath = config.EverythingPath
+		everythingPort = config.EverythingPort
 
 		saveConfig()
 		saveQRConfig()

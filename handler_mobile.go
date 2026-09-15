@@ -250,6 +250,15 @@ function isAudioFile(fileName) {
     var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
     return ['.mp3','.wav','.flac','.aac','.m4a','.m4r','.alac','.ogg','.oga','.opus','.wma','.ape','.aiff','.aif','.amr','.dvf','.msv','.dts','.dff','.dsf','.sacd','.tak','.tta','.wv','.mka'].indexOf(ext) !== -1;
 }
+// 判断该音频文件是否需要实时转码才能在手机端播放：
+// 浏览器无法直接解码 dts/dff/dsf/wma/ape 等，必须经过 ffmpeg 转码为 AAC 流式输出。
+function needsLiveAudioTranscode(fileName) {
+    var ext = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
+    // mp3/wav/flac/aac/m4a/ogg/opus 浏览器可原生播放，走 /file
+    // dts/dff/dsf/wma/ape/aiff/amr/dvf/msv/sacd/tak/tta/wv/mka 需要转码
+    var need = ['.dts','.dff','.dsf','.wma','.ape','.aiff','.aif','.amr','.dvf','.msv','.sacd','.tak','.tta','.wv','.mka'];
+    return need.indexOf(ext) !== -1;
+}
 
 // 标签切换
 var mobileSingerData = null;
@@ -472,24 +481,138 @@ function freshMobileAudioEl() {
   return na;
 }
 
-// 每次播放都走 blob 缓存(已确认浏览器劫持网络流)。fetch 整段音频为 blob 再播，
-// 等效本地文件，夸克/自带浏览器均能出电平表。
+// 每次播放都走缓存/降级模式(已确认浏览器劫持网络流)。
+// 优先用 MediaSource 分段流式：MSE 同样为本地解码、不会被劫持，且边下载边播不用等整首，
+// 既保证电平表又能快速起播。MSE 不可用时直接回退 http 流式(不再整首缓存，避免长时间等待)。
 function startBlobFallback(name, url) {
   showToast('使用缓存模式播放...');
-  fetch(url)
-    .then(function(r){ return r.blob(); })
-    .then(function(b){
-      playMedia(URL.createObjectURL(b), name);
-    })
-    .catch(function(){
-      // fetch 失败退回流式播放
-      audioEl = freshMobileAudioEl();
-      audioEl.src = url + '?t=' + Date.now();
-      audioEl.volume = lastVolume;
-      audioEl.play().catch(function(){});
-      loadMobileLyrics(currentNameForLyrics, currentLyricsPath);
-      startMobileAnalyzer(audioEl);
+  // 实时转码流(经 ffmpeg 推流，如 dts 走的 music-mode-stream)：本身是流，直接播放即可，
+  // 整首缓存一个实时流既无意义又很慢。
+  if (url.indexOf('/api/music-mode-stream') !== -1 || url.indexOf('/api/stream') !== -1) {
+    playbackHttp(url, name);
+    return;
+  }
+  var mime = mseMimeForName(name);
+  if (mime && window.MediaSource) {
+    try {
+      startMseStream(name, url, mime);
+      return;
+    } catch (e) { console.warn('MSE 启动失败，尝试直连流式:', e); }
+  }
+  playbackHttp(url, name);
+}
+
+// 直接 http 流式播放（实时转码流 / MSE 不可用时的回退）
+function playbackHttp(url, name) {
+  audioEl = freshMobileAudioEl();
+  var u = (url.indexOf('blob:') === 0) ? url : (url + '?t=' + Date.now());
+  audioEl.src = u;
+  audioEl.volume = lastVolume;
+  audioEl.play().catch(function(){});
+  loadMobileLyrics(currentNameForLyrics, currentLyricsPath);
+  startMobileAnalyzer(audioEl);
+}
+
+// 根据文件扩展名返回可用于 MediaSource 的 MIME，无法确定(如实时转码流)则返回空串交由直连
+function mseMimeForName(name) {
+  var ext = name.toLowerCase().substring(name.lastIndexOf('.'));
+  if (ext === '.mp3') return 'audio/mpeg';
+  if (ext === '.flac') return 'audio/flac';
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.m4a' || ext === '.aac' || ext === '.alac') return 'audio/mp4';
+  if (ext === '.ogg' || ext === '.oga') return 'audio/ogg';
+  if (ext === '.opus') return 'audio/ogg;codecs=opus';
+  return '';
+}
+
+// MediaSource 分段流式播放：边下载边 appendBuffer，收到一段就尝试播放，
+// 无需等整首缓存完成，显著缩短大文件首响等待。本地解码、不受浏览器劫持，电平表正常。
+// 启动失败或超时未开始均回退 http 直连流式。
+function startMseStream(name, url, mime) {
+  var MS = window.MediaSource || window.WebKitMediaSource;
+  var ms = new MS();
+  var objUrl = URL.createObjectURL(ms);
+  var mseEl = freshMobileAudioEl();
+  mseEl.src = objUrl;
+  var sb = null;
+  var pending = [];
+  var appending = false;
+  var started = false;
+  var finished = false;
+  var fellBack = false;
+
+  function endStream() {
+    if (!finished) { try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {} finished = true; }
+  }
+  function revoke() { try { URL.revokeObjectURL(objUrl); } catch (e) {} }
+  function fallbackHttp() {
+    if (fellBack) return;
+    fellBack = true;
+    revoke();
+    try { mseEl.removeAttribute('src'); mseEl.load(); } catch (e2) {}
+    playbackHttp(url, name);
+  }
+  function scheduleNext() {
+    if (appending || !pending.length || !sb) return;
+    var data = pending.shift();
+    if (data && data.byteLength) {
+      appending = true;
+      try { sb.appendBuffer(data); } catch (e) { appending = false; scheduleNext(); }
+    } else {
+      scheduleNext();
+    }
+  }
+  function queue(data) {
+    pending.push(data);
+    if (!sb) return;
+    scheduleNext();
+  }
+
+  ms.addEventListener('sourceopen', function() {
+    try {
+      sb = ms.addSourceBuffer(mime);
+    } catch (e) {
+      // MIME 不受支持，回退 http 直连
+      fallbackHttp();
+      return;
+    }
+    sb.addEventListener('updateend', function() {
+      appending = false;
+      if (!started) {
+        started = true;
+        mseEl.volume = lastVolume;
+        mseEl.play().catch(function(){});
+      }
+      scheduleNext();
     });
+    sb.addEventListener('error', function() { endStream(); });
+    loadMobileLyrics(currentNameForLyrics, currentLyricsPath);
+    startMobileAnalyzer(mseEl);
+
+    fetch(url).then(function(r) {
+      var body = r.body;
+      if (body && typeof body.getReader === 'function') {
+        var reader = body.getReader();
+        function pump() {
+          reader.read().then(function(rs) {
+            if (rs.done) { endStream(); return; }
+            queue(rs.value);
+            pump();
+          }).catch(function() { endStream(); });
+        }
+        pump();
+      } else {
+        // 无 ReadableStream API (部分国产旧浏览器)，直接回退 http 直连，
+        // 不做整首缓存 blob，浏览器本身会流式下载、不阻塞首响。
+        fallbackHttp();
+      }
+    }).catch(function() { endStream(); });
+  });
+
+  // 超时保护：一段时间没开始播放则回退 http 直连，避免永久空白
+  setTimeout(function() {
+    if (!started) fallbackHttp();
+  }, 8000);
 }
 
 // JS估算播放时间（流媒体传输期间浏览器currentTime为0的workaround）
@@ -869,7 +992,13 @@ function playQueueItem(idx) {
     mediaDuration = 0;
 
     if (isAudioFile(item.name)) {
-        var url = '/file?name=' + encodeURIComponent(item.path);
+        var url;
+        // 浏览器不能直接解码的音频（dts/dff/etc）走实时转码为 AAC 流，否则播放不出来
+        if (needsLiveAudioTranscode(item.name)) {
+            url = '/api/music-mode-stream?name=' + encodeURIComponent(item.path) + '&trackIndex=' + lastTrackIndex + '&_t=' + Date.now();
+        } else {
+            url = '/file?name=' + encodeURIComponent(item.path);
+        }
         currentNameForLyrics = item.origName || item.name;
         currentLyricsPath = item.path; // 歌词本地 .lrc 按服务器路径查找（与桌面端 currentFilePath 一致）
         playMedia(url, item.name);

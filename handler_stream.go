@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -350,10 +351,30 @@ func tryStream(w http.ResponseWriter, r *http.Request, ffmpegPath string, args [
 // 支持GPU加速（NVENC/QSV/AMF），GPU失败自动回退到CPU编码
 // 流控：仅缓冲15秒数据，边播边传，节省带宽
 func StreamHandler(w http.ResponseWriter, r *http.Request) {
+	// Everything 绝对路径：abs=1&p=<完整路径> 时按绝对路径实时转码推流
+	// （用绝对路径绕过 findMediaFile 的曲库映射，供扩搜结果直放失败时回退）
+	absRequested := r.URL.Query().Get("abs") == "1"
+	absPath := r.URL.Query().Get("p")
+	if absRequested {
+		ok := false
+		if everythingEnabled && absPath != "" {
+			if fi, err := os.Stat(absPath); err == nil && !fi.IsDir() && mediaExtSupported(absPath) {
+				ok = true
+			}
+		}
+		if !ok {
+			http.Error(w, "文件未找到", 404)
+			return
+		}
+	}
+
 	name := r.URL.Query().Get("name")
-	if name == "" {
+	if name == "" && !absRequested {
 		http.Error(w, "缺少name参数", 400)
 		return
+	}
+	if name == "" {
+		name = absPath
 	}
 
 	trackIndex := 0
@@ -368,15 +389,21 @@ func StreamHandler(w http.ResponseWriter, r *http.Request) {
 		quality = "low"
 	}
 
+	// Everything 绝对路径直推：文件真实存在则直接使用该路径，跳过 findMediaFile 的曲库映射
+	absDirect := false
 	foundPath := findMediaFile(name)
+	if r.URL.Query().Get("abs") == "1" {
+		absDirect = true
+		foundPath = name
+	}
 	log.Printf("[StreamHandler] file=%s trackIndex=%d quality=%s", filepath.Base(name), trackIndex, quality)
 	if foundPath == "" {
 		http.Error(w, "文件未找到", 404)
 		return
 	}
 
-	// 审核拦截：未经审核的上传资源不允许点播
-	if !reviewFileAllowed(foundPath) {
+	// 审核拦截：未经审核的上传资源不允许点播（Everything 绝对路径不受审核控制）
+	if !absDirect && !reviewFileAllowed(foundPath) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		http.Error(w, "该资源正在审核中，暂不可点播。", 403)
 		return

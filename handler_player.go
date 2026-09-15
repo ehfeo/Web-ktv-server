@@ -38,6 +38,12 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .transcode-btn:hover{background:#ed9c28;box-shadow:0 3px 6px rgba(0,0,0,0.35)}
 .transcode-btn:active{background:#d58512;box-shadow:0 1px 2px rgba(0,0,0,0.3)}
 .transcode-btn:disabled{background:#555;box-shadow:0 1px 2px rgba(0,0,0,0.2);cursor:not-allowed;transform:translateY(0);color:#999;text-shadow:none}
+.vb-btn{padding:12px 32px;border:none;border-radius:6px;font-size:18px;font-weight:bold;cursor:pointer;color:#fff;letter-spacing:1px;background:#9b59b6;box-shadow:0 2px 4px rgba(0,0,0,0.3);transition:all 0.2s ease;transform:translateY(0);text-shadow:0 1px 2px rgba(0,0,0,0.3);line-height:1.2}
+.vb-btn .btn-sub{display:block;font-size:12px;font-weight:normal;opacity:0.92;letter-spacing:0;margin-top:2px;text-shadow:0 1px 1px rgba(0,0,0,0.4)}
+.vb-btn:hover{background:#8e44ad;box-shadow:0 3px 6px rgba(0,0,0,0.35)}
+.vb-btn:active{background:#7d4fa3;box-shadow:0 1px 2px rgba(0,0,0,0.3)}
+.vb-btn.active{background:#5cb85c;box-shadow:0 2px 4px rgba(0,0,0,0.3)}
+.vb-btn.active:hover{background:#4cae4c}
 .tips{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(26,37,47,0.92);color:#fff;padding:12px 36px;border-radius:6px;display:none;font-size:18px;font-weight:bold;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 2px 8px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06)}
 .transcode-progress{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(26,37,47,0.92);color:#fff;padding:30px 50px;border-radius:8px;display:none;flex-direction:column;align-items:center;z-index:1000;max-width:600px;max-height:80vh;overflow:hidden;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 16px rgba(0,0,0,0.5)}
 .progress-bar{width:300px;height:20px;background:rgba(0,0,0,0.3);border-radius:10px;overflow:hidden;margin:10px 0;box-shadow:inset 0 1px 3px rgba(0,0,0,0.4)}
@@ -113,6 +119,7 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
   <button class="track-btn" id="btnT1" onclick="switchTrack(1)">伴奏</button>
   <button class="track-btn" id="btnT2" onclick="switchTrack(2)" style="display:none">右声道</button>
   <button class="transcode-btn" id="btnTranscode" onclick="startTranscode()" style="display:none">一键申请后台转码</button>
+  <button class="vb-btn" id="btnVB" onclick="toggleVB()">自适应音量<span class="btn-sub">前瞻限幅</span></button>
 </div>
 <div class="transcode-progress" id="transcodeProgress">
   <div class="progress-text">转码中...</div>
@@ -455,6 +462,126 @@ function setupChannelRouting(mode) {
   }
 }
 
+// ===== 自适应音量提升：算法⑦ 思路（门控归一化 + 峰值限制），基于原生 GainNode 实现 =====
+// 当前部分浏览器不支持 AudioWorklet，且 ScriptProcessor 会引入块边界噪声；
+// 故采用原生 GainNode（浏览器自带，绝不产生拼接噪声）+ 周期读取 Analyser 的 RMS/峰值，
+// 用 setTargetAtTime 平滑调整增益，实现"目标 RMS-5 归一化 + 噪声门(不抬底噪) + 峰值限幅"。
+// 关闭时增益为 1，纯透传，零延迟零噪声。
+var VB = { enabled: false, target: -5, pending: undefined };
+var vbGain = null;   // 原生增益节点（始终在链路中，关闭时 =1）
+var vbAna = null;    // 响度/峰值测量节点（接源前，前瞻检测用）
+var vbDelay = null;  // 前瞻延迟节点（把输出延后一点，让限幅器有时间捕获瞬时峰值）
+var vbTimer = null;
+var vbMsq = 1e-12;   // 平滑后的能量均值（用于 RMS，抑制跳变）
+var vbDb = 0;        // 当前应用增益（dB）
+var vbHeld = 0;      // 低于噪声门持续毫秒数
+var VB_LOOK = 0.014; // 前瞻时间(秒)：输出相对检测延迟 14ms，配合 10ms 轮询捕获突发峰值
+
+// 建立 源->前瞻延迟->增益->分路；并附加检测分支(取源前、未延迟)。
+// 增益按"当前输入采样"算出，调度到"该采样从前瞻缓冲产出时"生效，等效原测试页的前瞻限幅。
+function vbAttach(ctx, src) {
+  if(!src || !splitter) return;
+  try {
+    vbDelay = ctx.createDelay(0.06); vbDelay.delayTime.value = VB_LOOK;
+    vbGain = ctx.createGain(); vbGain.gain.value = 1;
+  } catch(e){ vbGain = null; return; }
+  vbAna = ctx.createAnalyser();
+  vbAna.fftSize = 256;
+  vbAna.smoothingTimeConstant = 0.0;
+  vbAna.minDecibels = -100;
+  try { src.connect(vbDelay); vbDelay.connect(vbGain); vbGain.connect(splitter); src.connect(vbAna); } catch(e){}
+}
+
+function vbReset() {
+  vbStopTimer();
+  vbGain = null; vbDelay = null; vbAna = null;
+  vbMsq = 1e-12; vbDb = 0; vbHeld = 0;
+  VB.enabled = false;
+}
+
+function vbStopTimer() { if(vbTimer){ clearInterval(vbTimer); vbTimer = null; } }
+
+// 每 10ms 调用：测响度/峰值，目标增益取"峰值限幅与归一化两者较保守者"，
+// 调度到前瞻缓冲产出时生效：快速攻击捕获瞬时峰值(钢琴/鼓点不破音)，慢速释放避免抽吸。
+function vbPoll() {
+  if(!vbAna || !vbGain || !audioCtx) return;
+  var td = new Float32Array(vbAna.fftSize);
+  try { vbAna.getFloatTimeDomainData(td); } catch(e) { return; }
+  var s = 0, pk = 0;
+  for(var i=0;i<td.length;i++){ var a=td[i]; s += a*a; var ab=a<0?-a:a; if(ab>pk) pk=ab; }
+  var msq = s/td.length;
+  vbMsq = vbMsq*0.92 + msq*0.08;              // 平滑能量，抑制瞬时抖动
+  var rmsDb = 20*Math.log10(Math.sqrt(vbMsq)+1e-12);
+  var gateDb = -50, maxBoost = 24, minGain = -60, ceil = -1;
+  // 峰值限幅目标(真峰值不超过 ceil dBTP)
+  var lim = ceil - ( 20*Math.log10(pk+1e-12) );
+  if(lim > maxBoost) lim = maxBoost;
+  if(lim < minGain)  lim = minGain;
+  var norm;
+  if(rmsDb < gateDb){                        // 噪声门内：不抬底噪；超时后缓慢退回 0dB
+    vbHeld += 10;
+    if(vbHeld > 600){ vbDb += (0-vbDb)*(0.03); }
+    norm = vbDb;
+  } else {
+    vbHeld = 0;
+    norm = VB.target - rmsDb;                // 归一化：把 RMS 拉到目标
+    if(norm > maxBoost) norm = maxBoost;
+    if(norm < minGain)  norm = minGain;
+  }
+  var targetDb = (lim < norm) ? lim : norm;  // 取较保守者：峰值优先，保证不破音
+  if(targetDb < vbDb) vbDb += (targetDb - vbDb)*0.5;   // 快速攻击
+  else                vbDb += (targetDb - vbDb)*0.1;   // 慢速释放
+  var glin = Math.pow(10, vbDb/20);
+  var now = audioCtx.currentTime;
+  var t0 = now + 0.004;                      // 略提前开始攻击，峰值产出时即已到位
+  try { vbGain.gain.cancelScheduledValues(now); } catch(e){}
+  vbGain.gain.setValueAtTime(vbGain.gain.value, now);
+  vbGain.gain.setTargetAtTime(glin, t0, 0.004);
+}
+
+function syncVBUI() {
+  var b = document.getElementById('btnVB');
+  if (b) b.classList.toggle('active', !!VB.enabled);
+}
+function reportVB() {
+  if (window.opener && !window.opener.closed) {
+    window.opener.postMessage({action: "volumeBoostState", enabled: !!VB.enabled}, "*");
+  }
+}
+// 全局开关入口：既可由本页按钮触发，也可由主控端 postMessage 远程触发。
+// setVB(on) 幂等：同一状态不重复执行；链路未建立时记录 pending，建立后自动应用。
+function setVB(on, silent) {
+  on = !!on;
+  VB.pending = on;          // 始终记录期望状态：切歌/重建音频上下文后自动恢复
+  if (!vbGain) {
+    syncVBUI();
+    return;
+  }
+  if (on === VB.enabled) return;
+  VB.enabled = on;
+  syncVBUI();
+  if (on) {
+    vbDb = 0;
+    vbStopTimer();
+    vbPoll();
+    vbTimer = setInterval(vbPoll, 10);
+    if (!silent) showTip('自适应音量提升：开（目标 RMS -' + (-VB.target) + 'dBFS）');
+  } else {
+    vbStopTimer();
+    vbDb = 0;
+    try {
+      var nw = audioCtx.currentTime;
+      vbGain.gain.cancelScheduledValues(nw);
+      vbGain.gain.setTargetAtTime(1, nw, 0.01);
+    } catch(e) {}
+    if (!silent) showTip('自适应音量提升：关');
+  }
+  reportVB();
+}
+function toggleVB() {
+  setVB(!VB.enabled);
+}
+
 function initWebAudio() {
   if (!video) return;
 
@@ -465,14 +592,19 @@ function initWebAudio() {
   } catch(e) {}
 
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  vbReset();
   mediaSource = audioCtx.createMediaElementSource(video);
   splitter = audioCtx.createChannelSplitter(2);
   merger = audioCtx.createChannelMerger(2);
 
-  mediaSource.connect(splitter);
+  vbAttach(audioCtx, mediaSource);
   setupChannelRouting('stereo');
   merger.connect(audioCtx.destination);
   channelMode = 'stereo';
+  // 链路刚建立：应用主控端此前指定的全局音量提升状态
+  if (VB.pending !== undefined && VB.pending !== VB.enabled) {
+    setVB(VB.pending, true);
+  }
 }
 
 function doSwitchTrack(targetIdx) {
@@ -655,6 +787,7 @@ function isAudioFile(fileName) {
 
 var metadataCheckTimer = null;
 var switchingSong = false;
+var streamFallbackRetried = false; // 本次切歌是否已对 Everything 直放做过转码回退（只回退一次）
 var nextSongCooldown = false;
 var keydownRegistered = false;
 
@@ -686,6 +819,7 @@ function onVideoMetadataLoaded() {
 function playVideo(url, name, type, path) {
   clearTimeout(retryTimer);
   switchingSong = true;
+  streamFallbackRetried = false; // 每次切换歌曲重置转码回退标记
   trackList = [];
   lyrics = [];
   currentLyricIndex = 0;
@@ -776,6 +910,9 @@ function playVideo(url, name, type, path) {
 
   document.querySelector(".ctrl-bar").style.display = "flex";
 
+  // 统一走 WebAudio 以支持自适应音量提升（音量提升默认关闭时为透传）
+  try { initWebAudio(); } catch(e) {}
+
   video.addEventListener("canplay", function() {
     switchingSong = false;
     setTimeout(function() {
@@ -842,6 +979,20 @@ function playVideo(url, name, type, path) {
 
   video.onerror = function(e) {
     if (isTranscoding) {
+      return;
+    }
+    // Everything 绝对路径直放失败（视频编码不被浏览器支持）时，自动回退到实时转码推流。
+    // 仅对扩搜结果的 /file?abs=1 直放触发一次，避免流媒体再次出错时循环。
+    var absSrc = '';
+    try { absSrc = video.currentSrc || video.src || ''; } catch(_) {}
+    if (absSrc.indexOf('/file?abs=1') !== -1 && !streamFallbackRetried && currentFilePath) {
+      streamFallbackRetried = true;
+      isStreamMode = true;
+      clearTimeout(retryTimer);
+      video.src = '/api/stream?abs=1&p=' + encodeURIComponent(currentFilePath)
+                + '&trackIndex=' + (lastTrackIndex||0) + '&quality=high&_t=' + Date.now();
+      video.load();
+      showTip('浏览器无法直接解码该媒体（已自动切换为实时转码推流播放）');
       return;
     }
     // 媒体加载失败（含审核拦截返回403导致无法触发canplay）时必须复位切换标志，
@@ -1006,6 +1157,8 @@ window.addEventListener("message", function(e) {
     playVideo(data.url, data.name, data.type, data.path);
   } else if (data.action === "switchTrack") {
     switchTrack(data.index);
+  } else if (data.action === "volumeBoost") {
+    setVB(data.enabled, true);
   } else if (data.action === "syncQueue") {
     currentQueue = data.list;
     currentPlayingIndex = data.currentPlayingIndex !== undefined ? data.currentPlayingIndex : -1;

@@ -25,6 +25,9 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
         .form-group textarea{width:100%;padding:11px 14px;border:1px solid #2f4562;border-radius:4px;background:#0d1922;color:#ecf0f1;font-size:14px;min-height:100px;resize:vertical;transition:border-color .2s}
         .form-group textarea:focus{outline:none;border-color:#428bca}
         .form-group .hint{font-size:12px;color:#95a5a6;margin-top:6px}
+        .switch-row{display:flex;align-items:center;gap:8px;margin:4px 0;cursor:pointer;line-height:1.5}
+        .switch-row input{width:auto;flex:none}
+        .switch-row span{font-size:14px;color:#ecf0f1}
         .form-group select{width:100%;padding:11px 14px;border:1px solid #2f4562;border-radius:4px;background:#0d1922;color:#ecf0f1;font-size:14px;transition:border-color .2s}
         .form-group select:focus{outline:none;border-color:#428bca}
         .btn{padding:13px 34px;border:none;border-radius:6px;color:#fff;font-size:16px;font-weight:bold;cursor:pointer;letter-spacing:1px;transition:background .15s,box-shadow .15s}
@@ -115,6 +118,28 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
             </label>
             <div class="hint">开启后，手机扫码点歌页的“遥控”标签页可操控主控端播放。为防止他人捣乱，建议仅在需要时开启；关闭后手机端会提示“主控端未开启手机遥控权限”。</div>
         </div>
+
+        <h2 style="margin:25px 0 15px;font-size:18px">Everything 搜索扩充</h2>
+
+        <div class="form-group" style="border:2px solid #d9534f">
+            <label>使用 Everything 扩充搜索范围</label>
+            <label class="switch-row">
+                <input type="checkbox" id="everythingEnabled">
+                <span>开启后用 Everything 搜索整机媒体文件并追加到搜索结果</span>
+            </label>
+            <div style="margin-top:10px">
+                <label for="everythingPath">Everything.exe 路径</label>
+                <input type="text" id="everythingPath" placeholder="例如：C:\Program Files\Everything\Everything.exe">
+                <div class="hint">用于定位 Everything.ini 读取 HTTP 服务器端口。程序会先在 Everything 工具→选项→HTTP服务器 中启用 HTTP 服务才可查询。</div>
+            </div>
+            <div style="margin-top:10px">
+                <label for="everythingPort">HTTP 服务器端口（留空则自动从 Everything.ini 读取，默认 80）</label>
+                <input type="text" id="everythingPort" placeholder="例如：80">
+            </div>
+            <div class="hint" style="margin-top:10px;border:1px solid #f0ad4e;background:rgba(240,173,78,0.12);padding:8px;line-height:1.7;color:#f0ad4e">
+                <b>⚠ 重要安全提示：</b>Everything 返回的是整机任意位置的媒体文件，<b>不受本程序的上传内容审核控制，启用后可直接点播</b>。开启本选项等于允许点播所有 Everything 已索引的可播放文件，请自行评估风险。使用条件：<b>(1)</b> 服务器本机已安装 Everything 并在 工具→选项→HTTP服务器 中勾选启用；<b>(2)</b> 点歌程序与该 Everything 同机运行。
+            </div>
+        </div>
         
         <div class="btn-group">
             <button class="btn btn-primary" onclick="saveSettings()">保存设置</button>
@@ -155,6 +180,9 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
                     document.getElementById('qrServerAddr').value = config.qrServerAddr || '';
                     document.getElementById('qrPassword').value = config.qrPassword || '';
                     document.getElementById('qrCtrlEnabled').checked = !!config.qrCtrlEnabled;
+                    document.getElementById('everythingEnabled').checked = !!config.everythingEnabled;
+                    document.getElementById('everythingPath').value = config.everythingPath || '';
+                    document.getElementById('everythingPort').value = config.everythingPort || '';
                     updateQRMode();
                 }
             };
@@ -184,7 +212,10 @@ func SettingsHandler(w http.ResponseWriter, r *http.Request) {
                 qrMode: document.getElementById('qrMode').value,
                 qrServerAddr: document.getElementById('qrServerAddr').value.trim(),
                 qrPassword: document.getElementById('qrPassword').value,
-                qrCtrlEnabled: document.getElementById('qrCtrlEnabled').checked
+                qrCtrlEnabled: document.getElementById('qrCtrlEnabled').checked,
+                everythingEnabled: document.getElementById('everythingEnabled').checked,
+                everythingPath: document.getElementById('everythingPath').value.trim(),
+                everythingPort: document.getElementById('everythingPort').value.trim()
             };
             
             var xhr = new XMLHttpRequest();

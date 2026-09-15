@@ -451,6 +451,50 @@ func ReviewLogoutHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"success":true}`))
 }
 
+// EverythingUnlockHandler POST /api/everything/unlock
+// 校验密码是否与审核密码一致，用于前端“扩搜”开关解锁。
+// 复用审核密码与同套防暴力破解机制，但不创建会话：状态仅存在于前端页面会话内。
+func EverythingUnlockHandler(w http.ResponseWriter, r *http.Request) {
+	ensureReviewLoaded()
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"success":false,"message":"Method not allowed"}`))
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+	}
+	body, _ := ioutil.ReadAll(r.Body)
+	json.Unmarshal(body, &req)
+
+	ip := reviewClientIP(r)
+	if reviewLoginLocked(ip) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte(`{"success":false,"message":"` + loginLockedIPMsg + `"}`))
+		return
+	}
+
+	reviewMgr.mu.RLock()
+	stored := reviewMgr.cfg.PasswordHash
+	reviewMgr.mu.RUnlock()
+
+	if stored == "" || hashPassword(req.Password) != stored {
+		locked := reviewRecordFail(ip)
+		msg := "密码错误"
+		if locked {
+			msg = "密码错误次数过多，已锁定15分钟。"
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"success":false,"message":"` + msg + `"}`))
+		return
+	}
+	reviewLoginSucceed(ip)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(`{"success":true}`))
+}
+
 // ReviewStatusHandler GET /api/review/status 返回登录状态
 func ReviewStatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
