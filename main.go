@@ -194,6 +194,7 @@ func startServer() error {
 		http.HandleFunc("/api/transcode", TranscodeHandler)
 		http.HandleFunc("/api/transcode/progress", TranscodeProgressHandler)
 		http.HandleFunc("/api/transcode/status", TranscodeStatusHandler)
+		http.HandleFunc("/api/transcode/grow", GrowTranscodeHandler)
 		http.HandleFunc("/api/transcode/check-and-add", CheckAndAddTranscodeHandler)
 		http.HandleFunc("/api/disk-status", DiskSleepStatusHandler)
 		http.HandleFunc("/api/track-switch", TrackSwitchHandler)
@@ -391,9 +392,15 @@ func showMenu() {
 	fmt.Print("请选择操作: ")
 }
 
+var stdinReader *bufio.Reader
+
 func getUserInput() string {
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
+	// 复用同一声明好的 reader，避免每次新建 bufio.Reader 时预缓冲整段管道输入，
+	// 否则前一次读取会吞掉后续提示需要的输入（影响脚本化 stdin 多次提示）。
+	if stdinReader == nil {
+		stdinReader = bufio.NewReader(os.Stdin)
+	}
+	input, _ := stdinReader.ReadString('\n')
 	return strings.TrimSpace(input)
 }
 

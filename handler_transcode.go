@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,7 @@ type mediaInfoCacheEntry struct {
 	videoBitrate             string
 	audioBitrate             string
 	audioCodecStr            string
+	videoInterlaced          bool // 视频是否为隔行扫描(台式1080i等)，若为true浏览器解码易卡死，需去隔行转码
 	modTime                  time.Time // 文件修改时间，用于失效检测
 }
 
@@ -177,7 +179,7 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	videoCodec, _, _, allAudioBrowserSupported, _, _, audioCodecStr := getMediaInfo(foundPath)
+	videoCodec, _, _, allAudioBrowserSupported, _, _, audioCodecStr, videoInterlaced := getMediaInfo(foundPath)
 	videoIsH264 := strings.EqualFold(videoCodec, "h264")
 	videoCodecUpper := strings.ToUpper(videoCodec)
 
@@ -191,7 +193,23 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if isAudioFile || (videoIsH264 && allAudioBrowserSupported) {
+	// 浏览器 <video> 可原生直接播放的视频容器白名单。
+	// 其余容器（TS/M2TS/AVI/MOV/WMV/FLV/VOB 等）即使内层是 H.264 浏览器也无法直接播放，
+	// 必须走转码（或实时流）流程，否则直接 /file 点播会黑屏/无画面。
+	// 注意：转码产物统一输出为 .mkv（TS/MKV 源都是），且已是 h264+aac，
+	// 因此 .mkv 必须在白名单内，否则已转码的 mkv 每次点播都会再次转码浪费算力。
+	canDirectPlayVideo := false
+	if !isAudioFile {
+		directPlayVideoExts := []string{".mp4", ".m4v", ".webm", ".mkv"}
+		for _, de := range directPlayVideoExts {
+			if ext == de {
+				canDirectPlayVideo = true
+				break
+			}
+		}
+	}
+
+	if isAudioFile || (canDirectPlayVideo && videoIsH264 && !videoInterlaced && allAudioBrowserSupported) {
 		result := struct {
 			NeedsTranscode bool   `json:"needsTranscode"`
 			Status         string `json:"status"`
@@ -292,6 +310,99 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// transcodeGrowURL 计算与 runTranscode 一致的“边写盘边播放”临时文件URL。
+// 仅用于隔行H264（去隔行产物为分片MP4，可被浏览器渐进播放尚未写完的文件）。
+func transcodeGrowURL(sourceAbs string) string {
+	dir := filepath.Dir(sourceAbs)
+	ext := filepath.Ext(sourceAbs)
+	baseName := strings.TrimSuffix(filepath.Base(sourceAbs), ext)
+	outputExt := ext
+	unsupportedContainers := map[string]bool{".mpg": true, ".mpeg": true, ".avi": true, ".wmv": true, ".rm": true, ".rmvb": true, ".flv": true, ".ts": true}
+	if unsupportedContainers[strings.ToLower(ext)] {
+		outputExt = ".mkv"
+	}
+	tempAbs := filepath.Join(dir, baseName+"_temp"+outputExt)
+	finalAbs := filepath.Join(dir, baseName+outputExt)
+	return "/api/transcode/grow?p=" + url.QueryEscape(tempAbs) + "&final=" + url.QueryEscape(finalAbs)
+}
+
+// GrowTranscodeHandler 服务正在转码尚未写完的临时文件（边写盘边播放）。
+// 以流式（无固定 Content-Length）推送分片MP4，浏览器可即时播放、无需等待转码完成。
+// 转码完成后临时文件被 rename 覆盖原文件，本机已打开的句柄仍有效，可一直读到结尾。
+func GrowTranscodeHandler(w http.ResponseWriter, r *http.Request) {
+	tempP := r.URL.Query().Get("p")
+	if tempP == "" {
+		http.Error(w, "not found", 404)
+		return
+	}
+
+	// 临时文件可能尚未开始写入，等待其出现（最多约3秒）
+	var f *os.File
+	var err error
+	for i := 0; i < 15; i++ {
+		f, err = os.Open(tempP)
+		if err == nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if err == nil && f != nil {
+		defer f.Close()
+		w.Header().Set("Content-Type", "video/mp4")
+		w.Header().Set("Cache-Control", "no-store")
+		fl, _ := w.(http.Flusher)
+		buf := make([]byte, 256*1024)
+		var offset int64 = 0
+		var lastSize int64 = -1
+		stall := 0
+		for {
+			n, rerr := f.ReadAt(buf, offset)
+			if n > 0 {
+				if _, werr := w.Write(buf[:n]); werr != nil {
+					return
+				}
+				if fl != nil {
+					fl.Flush()
+				}
+				offset += int64(n)
+				stall = 0
+				continue
+			}
+			if rerr == io.EOF {
+				// 到当前写入结尾：可能仍在增长，等待一段时间；若持续不变则视为写入完成
+				fi, _ := f.Stat()
+				size := int64(0)
+				if fi != nil {
+					size = fi.Size()
+				}
+				if size == lastSize {
+					stall++
+				} else {
+					stall = 0
+					lastSize = size
+				}
+				if stall >= 20 { // ~4秒无增长，判定转码写入完成
+					return
+				}
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+			// 其它读错误
+			return
+		}
+	}
+
+	// temp 不存在（可能已完成并已 rename）：回落服务最终文件
+	finalP := r.URL.Query().Get("final")
+	if finalP != "" {
+		if fi, e := os.Stat(finalP); e == nil && !fi.IsDir() && fi.Size() > 0 {
+			http.ServeFile(w, r, finalP)
+			return
+		}
+	}
+	http.Error(w, "not found", 404)
+}
+
 func TranscodeStatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
@@ -330,6 +441,7 @@ func TranscodeStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	outputPath := ""
+	growUrl := ""
 	if isCurrent {
 		status = "transcoding"
 		transcodeProgress.Lock()
@@ -347,6 +459,12 @@ func TranscodeStatusHandler(w http.ResponseWriter, r *http.Request) {
 			codecInfo = "V:" + task.VideoCodec
 		} else if task.AudioCodec != "" {
 			codecInfo = "A:" + task.AudioCodec
+		}
+		// 规则C（边写边播）：仅当源为隔行H264（去隔行分片MP4，可渐进播放）时提供 growUrl
+		if status == "transcoding" && task.FilePath != "" {
+			if _, _, _, _, _, _, _, interlaced := getMediaInfo(task.FilePath); interlaced {
+				growUrl = transcodeGrowURL(task.FilePath)
+			}
 		}
 	}
 
@@ -373,6 +491,7 @@ func TranscodeStatusHandler(w http.ResponseWriter, r *http.Request) {
 		RequestKey    string `json:"requestKey"`
 		CodecInfo     string `json:"codecInfo"`
 		OutputPath    string `json:"outputPath"`
+		GrowUrl       string `json:"growUrl"`
 	}{
 		Status:        status,
 		Progress:      progress,
@@ -380,6 +499,7 @@ func TranscodeStatusHandler(w http.ResponseWriter, r *http.Request) {
 		RequestKey:    requestKey,
 		CodecInfo:     codecInfo,
 		OutputPath:    outputPath,
+		GrowUrl:       growUrl,
 	}
 	json.NewEncoder(w).Encode(result)
 }
@@ -739,7 +859,7 @@ func runTranscode(filePath string, requestKey string) {
 	tempPath := filepath.Join(dir, baseName+"_temp"+outputExt)
 	finalPath := filepath.Join(dir, baseName+outputExt)
 
-	videoCodec, allAudioIsAAC, _, _, videoBitrate, audioBitrate, _ := getMediaInfo(filePath)
+	videoCodec, allAudioIsAAC, _, _, videoBitrate, audioBitrate, _, videoInterlaced := getMediaInfo(filePath)
 	duration := getDuration(filePath)
 	videoIsH264 := strings.EqualFold(videoCodec, "h264")
 	ffmpegPath := getFFmpegPath()
@@ -755,11 +875,42 @@ func runTranscode(filePath string, requestKey string) {
 	var success bool
 	var usedGPU bool
 
-	// 关键判断：如果源视频已经是H264，只需copy视频流+转码音频，GPU编码器不会被使用
-	// 此时跳过GPU尝试，避免误导性日志和浪费时间
-	if videoIsH264 {
+	// 关键判断1：隔行的 H264（如 1080i）→ 必须去隔行重编码（yadif）。
+	// 浏览器软解 OpenH264 不支持 MBAFF 隔行，硬解不稳定，会整文件读进内存卡死。
+	// 原 "视频copy+仅转音频" 的参数无法消除隔行，产物仍是隔行、继续卡死，所以隔行走重编码。
+	if videoIsH264 && videoInterlaced {
+		fmt.Printf("[转码] 检测到隔行视频(H264 interlaced=%t)，执行去隔行重编码(yadif)\n", videoInterlaced)
+		// 优先尝试 GPU 全流水线，失败降级 libx264（与下方非H264 GPU 链一致）
+		if videoEncoder != "libx264" {
+			transcodeProgress.Lock()
+			transcodeProgress.status = "running"
+			transcodeProgress.progress = 0
+			transcodeProgress.message = "隔行视频，尝试GPU加速去隔行编码..."
+			transcodeProgress.Unlock()
+			success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, videoEncoder, audioEncoder, true, true)
+			if !success {
+				if checkTranscodeResult(tempPath, duration) {
+					fmt.Printf("[GPU编码成功] 虽然返回错误码，但输出文件有效\n")
+					success = true
+					usedGPU = true
+				}
+			} else {
+				usedGPU = true
+			}
+			if !success {
+				transcodeProgress.Lock()
+				transcodeProgress.status = "running"
+				transcodeProgress.progress = 0
+				transcodeProgress.message = "GPU去隔行失败，回退CPU编码(libx264+yadif)..."
+				transcodeProgress.Unlock()
+				success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "libx264", "aac", false, true)
+			}
+		} else {
+			success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "libx264", "aac", false, true)
+		}
+	} else if videoIsH264 {
 		fmt.Printf("[转码] 视频已是H264，仅需转码音频 (视频copy)\n")
-		success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "copy", "aac", false)
+		success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "copy", "aac", false, false)
 	} else if videoEncoder != "libx264" {
 		// 非H264视频需要重新编码 → 尝试GPU全流水线(解码+编码)
 		transcodeProgress.Lock()
@@ -769,7 +920,7 @@ func runTranscode(filePath string, requestKey string) {
 		transcodeProgress.Unlock()
 		fmt.Printf("[转码] 尝试GPU全流水线(解码+编码): %s\n", videoEncoder)
 
-		success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, videoEncoder, audioEncoder, true)
+		success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, videoEncoder, audioEncoder, true, false)
 
 		if !success {
 			if checkTranscodeResult(tempPath, duration) {
@@ -790,7 +941,7 @@ func runTranscode(filePath string, requestKey string) {
 			transcodeProgress.Unlock()
 			fmt.Printf("[转码] 降级: CPU解码 + GPU编码(%s)\n", videoEncoder)
 
-			success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, videoEncoder, audioEncoder, false)
+			success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, videoEncoder, audioEncoder, false, false)
 
 			if !success {
 				if checkTranscodeResult(tempPath, duration) {
@@ -810,10 +961,10 @@ func runTranscode(filePath string, requestKey string) {
 			transcodeProgress.message = "GPU编码失败，回退到CPU编码..."
 			transcodeProgress.Unlock()
 			fmt.Printf("[转码] 回退CPU编码 (libx264)\n")
-			success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "libx264", "aac", false)
+			success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "libx264", "aac", false, false)
 		}
 	} else {
-		success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "libx264", "aac", false)
+		success = executeTranscode(ffmpegPath, filePath, tempPath, videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, "libx264", "aac", false, false)
 	}
 
 	if success && usedGPU {
@@ -861,6 +1012,16 @@ func runTranscode(filePath string, requestKey string) {
 			}
 		}
 	}
+	// 若未命中 mediaDirs（如审核通过的 Approved 目录等本程序运行目录），
+	// 退回为“相对程序运行目录”的正斜杠路径（如 Approved/清朗金融.mkv）。
+	// 否则前端拿到的会是不能被 findMediaFile 正确解析的一次性绝对路径，
+	// 导致仍按原 .ts 名请求、Content-Type 错误、浏览器解码失败。
+	cwd, _ := os.Getwd()
+	if cwd != "" {
+		if rel, err := filepath.Rel(cwd, finalPath); err == nil && rel != "." {
+			outputRelPath = strings.ReplaceAll(rel, "\\", "/")
+		}
+	}
 
 	transcodeProgress.Lock()
 	transcodeProgress.status = "completed"
@@ -892,6 +1053,9 @@ func runTranscode(filePath string, requestKey string) {
 	// 2. 再添加新路径
 	pathToAbsFile.m[outputRelPath] = finalPath
 	basenameToAbsFile.m[newBasename] = append(basenameToAbsFile.m[newBasename], finalPath)
+	// 兼容：播放窗口可能仍持有旧文件名（如 .ts）的 URL，将其也重定向到新产物，
+	// 这样 /file 按真实文件(.mkv) 服务，Content-Type 正确、浏览器可正常解码。
+	basenameToAbsFile.m[oldBasename] = append(basenameToAbsFile.m[oldBasename], finalPath)
 	basenameToAbsFile.Unlock()
 	pathToAbsFile.Unlock()
 	log.Printf("[转码] 路径映射已更新: %s -> %s (移除旧路径: %s)", outputRelPath, filepath.Base(finalPath), requestKey)
@@ -906,13 +1070,15 @@ func runTranscode(filePath string, requestKey string) {
 	lastCompletedTranscode.Unlock()
 }
 
-func executeTranscode(ffmpegPath, filePath, tempPath string, videoCodec string, videoIsH264, allAudioIsAAC bool, videoBitrate, audioBitrate string, duration float64, vEncoder, aEncoder string, useHWAccel bool) bool {
-	mediaInfoStr := fmt.Sprintf("视频编码: %s (H264: %t)\n音频编码: 全部AAC: %t\n视频码率: %s\n音频码率: %s\n时长: %.2fs\n视频编码器: %s\n音频编码器: %s",
-		videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, vEncoder, aEncoder)
+func executeTranscode(ffmpegPath, filePath, tempPath string, videoCodec string, videoIsH264, allAudioIsAAC bool, videoBitrate, audioBitrate string, duration float64, vEncoder, aEncoder string, useHWAccel, deinterlace bool) bool {
+	mediaInfoStr := fmt.Sprintf("视频编码: %s (H264: %t)\n音频编码: 全部AAC: %t\n视频码率: %s\n音频码率: %s\n时长: %.2fs\n视频编码器: %s\n音频编码器: %s\n去隔行: %t",
+		videoCodec, videoIsH264, allAudioIsAAC, videoBitrate, audioBitrate, duration, vEncoder, aEncoder, deinterlace)
 
 	var cmd *exec.Cmd
 	var cmdStr string
-	if videoIsH264 {
+
+	// 非隔行 H264：保持原逻辑 —— 视频copy + 仅转音频；已是 AAC 则无需转码
+	if videoIsH264 && !deinterlace {
 		if allAudioIsAAC {
 			transcodeProgress.Lock()
 			transcodeProgress.status = "completed"
@@ -931,60 +1097,45 @@ func executeTranscode(ffmpegPath, filePath, tempPath string, videoCodec string, 
 			cmdStr = ffmpegPath + " -i \"" + filePath + "\" -c:v copy -c:a " + aEncoder + " -b:a " + audioBitrate + " -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
 		}
 	} else {
+		// 非H264 或 隔行H264：需视频重编码。
+		// 隔行源加 `-vf yadif=0:0:0` 去隔行；重编码产物加 faststart 便于浏览器直接播。
+		args := []string{}
 		if strings.Contains(vEncoder, "nvenc") {
-			// NVENC 编码：useHWAccel=true 表示尝试GPU全流水线（解码+编码）
-			// -hwaccel cuda 让FFmpeg自动选择CUVID解码器（h264_cuvid/hevc_cuvid/vp9_cuvid等）
-			// 数据全程留在GPU显存，最大化GPU利用率
 			if useHWAccel {
-				if allAudioIsAAC {
-					cmd = exec.Command(ffmpegPath, "-hwaccel", "cuda", "-i", filePath,
-						"-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", "-profile:v", "high",
-						"-c:a", "copy",
-						"-map", "0:v", "-map", "0:a",
-						"-progress", "pipe:1",
-						"-y", tempPath)
-					cmdStr = ffmpegPath + " -hwaccel cuda -i \"" + filePath + "\" -c:v h264_nvenc -preset p4 -cq 18 -profile:v high -c:a copy -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
-				} else {
-					cmd = exec.Command(ffmpegPath, "-hwaccel", "cuda", "-i", filePath,
-						"-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", "-profile:v", "high",
-						"-c:a", aEncoder, "-b:a", audioBitrate,
-						"-map", "0:v", "-map", "0:a",
-						"-progress", "pipe:1",
-						"-y", tempPath)
-					cmdStr = ffmpegPath + " -hwaccel cuda -i \"" + filePath + "\" -c:v h264_nvenc -preset p4 -cq 18 -profile:v high -c:a " + aEncoder + " -b:a " + audioBitrate + " -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
-				}
-			} else {
-				// 降级模式：CPU解码 + NVENC编码（数据需CPU→GPU搬运，GPU利用率较低）
-				if allAudioIsAAC {
-					cmd = exec.Command(ffmpegPath, "-i", filePath,
-						"-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", "-profile:v", "high",
-						"-c:a", "copy",
-						"-map", "0:v", "-map", "0:a",
-						"-progress", "pipe:1",
-						"-y", tempPath)
-					cmdStr = ffmpegPath + " -i \"" + filePath + "\" -c:v h264_nvenc -preset p4 -cq 18 -profile:v high -c:a copy -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
-				} else {
-					cmd = exec.Command(ffmpegPath, "-i", filePath, "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", "-profile:v", "high", "-c:a", aEncoder, "-b:a", audioBitrate, "-map", "0:v", "-map", "0:a", "-progress", "pipe:1", "-y", tempPath)
-					cmdStr = ffmpegPath + " -i \"" + filePath + "\" -c:v h264_nvenc -preset p4 -cq 18 -profile:v high -c:a " + aEncoder + " -b:a " + audioBitrate + " -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
-				}
+				args = append(args, "-hwaccel", "cuda")
 			}
-		} else if strings.Contains(vEncoder, "qsv") {
-			if allAudioIsAAC {
-				cmd = exec.Command(ffmpegPath, "-i", filePath, "-c:v", vEncoder, "-b:v", videoBitrate, "-c:a", "copy", "-map", "0:v", "-map", "0:a", "-progress", "pipe:1", "-y", tempPath)
-				cmdStr = ffmpegPath + " -i \"" + filePath + "\" -c:v " + vEncoder + " -b:v " + videoBitrate + " -c:a copy -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
-			} else {
-				cmd = exec.Command(ffmpegPath, "-i", filePath, "-c:v", vEncoder, "-b:v", videoBitrate, "-c:a", aEncoder, "-b:a", audioBitrate, "-map", "0:v", "-map", "0:a", "-progress", "pipe:1", "-y", tempPath)
-				cmdStr = ffmpegPath + " -i \"" + filePath + "\" -c:v " + vEncoder + " -b:v " + videoBitrate + " -c:a " + aEncoder + " -b:a " + audioBitrate + " -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
+			args = append(args, "-i", filePath)
+			if deinterlace {
+				args = append(args, "-vf", "yadif=0:0:0")
 			}
+			args = append(args, "-c:v", "h264_nvenc", "-preset", "p4", "-cq", "18", "-profile:v", "high")
 		} else {
-			if allAudioIsAAC {
-				cmd = exec.Command(ffmpegPath, "-i", filePath, "-c:v", vEncoder, "-b:v", videoBitrate, "-c:a", "copy", "-map", "0:v", "-map", "0:a", "-progress", "pipe:1", "-y", tempPath)
-				cmdStr = ffmpegPath + " -i \"" + filePath + "\" -c:v " + vEncoder + " -b:v " + videoBitrate + " -c:a copy -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
-			} else {
-				cmd = exec.Command(ffmpegPath, "-i", filePath, "-c:v", vEncoder, "-b:v", videoBitrate, "-c:a", aEncoder, "-b:a", audioBitrate, "-map", "0:v", "-map", "0:a", "-progress", "pipe:1", "-y", tempPath)
-				cmdStr = ffmpegPath + " -i \"" + filePath + "\" -c:v " + vEncoder + " -b:v " + videoBitrate + " -c:a " + aEncoder + " -b:a " + audioBitrate + " -map 0:v -map 0:a -progress pipe:1 -y \"" + tempPath + "\""
+			args = append(args, "-i", filePath)
+			if deinterlace {
+				args = append(args, "-vf", "yadif=0:0:0")
 			}
+			args = append(args, "-c:v", vEncoder, "-b:v", videoBitrate)
 		}
+		// 音频：源全AAC则copy，否则重编码
+		if allAudioIsAAC {
+			args = append(args, "-c:a", "copy")
+		} else {
+			args = append(args, "-c:a", aEncoder, "-b:a", audioBitrate)
+		}
+		args = append(args, "-map", "0:v", "-map", "0:a")
+		if deinterlace {
+			// 浏览器容器产物用分片MP4：既能“边写盘边推流”（浏览器可渐进播放尚未写完的文件），
+			// 转码完成后覆盖原文件，下次直接可播（Chrome 支持分片MP4）。
+			args = append(args, "-movflags", "frag_keyframe+empty_moov+default_base_moof")
+		}
+		args = append(args, "-progress", "pipe:1", "-y", tempPath)
+		cmd = exec.Command(ffmpegPath, args...)
+		// 生成可读的命令串（用于状态页展示）
+		qargs := make([]string, 0, len(args))
+		for _, a := range args {
+			qargs = append(qargs, "\""+a+"\"")
+		}
+		cmdStr = ffmpegPath + " " + strings.Join(qargs, " ")
 	}
 
 	transcodeProgress.Lock()
@@ -1172,7 +1323,7 @@ func getDuration(filePath string) float64 {
 	return duration
 }
 
-func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAudioIsMP3 bool, allAudioBrowserSupported bool, videoBitrate, audioBitrate string, audioCodecStr string) {
+func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAudioIsMP3 bool, allAudioBrowserSupported bool, videoBitrate, audioBitrate string, audioCodecStr string, videoInterlaced bool) {
 	totalStart := time.Now()
 
 	// 阶段1：os.Stat（检测磁盘休眠唤醒——如果休眠，这里会卡很久）
@@ -1192,7 +1343,7 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 			result := entry
 			mediaInfoCache.RUnlock()
 			log.Printf("[getMediaInfo] 缓存命中 总耗时=%dms file=%s", time.Since(totalStart).Milliseconds(), filepath.Base(filePath))
-			return result.videoCodec, result.allAudioIsAAC, result.allAudioIsMP3, result.allAudioBrowserSupported, result.videoBitrate, result.audioBitrate, result.audioCodecStr
+			return result.videoCodec, result.allAudioIsAAC, result.allAudioIsMP3, result.allAudioBrowserSupported, result.videoBitrate, result.audioBitrate, result.audioCodecStr, result.videoInterlaced
 		}
 		mediaInfoCache.RUnlock()
 		log.Printf("[getMediaInfo] 缓存查询耗时=%dms file=%s", time.Since(cacheStart).Milliseconds(), filepath.Base(filePath))
@@ -1238,7 +1389,7 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 	// 一次 ffprobe 调用拿到所有信息（视频/音频 codec、码率、声道数、格式码率）
 	// 替代原先的 4 次串行调用
 	cmd := exec.Command(ffprobePath, "-v", "error",
-		"-show_entries", "stream=codec_type,codec_name,bit_rate,channels:format=bit_rate",
+		"-show_entries", "stream=codec_type,codec_name,bit_rate,channels,field_order:format=bit_rate",
 		"-of", "json", filePath)
 	output, cmdErr := cmd.CombinedOutput()
 	ffprobeMs := time.Since(startTime).Milliseconds()
@@ -1246,10 +1397,11 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 		ffprobeMs, len(output), cmdErr, filepath.Base(filePath))
 
 	type probeStream struct {
-		CodecType string `json:"codec_type"`
-		CodecName string `json:"codec_name"`
-		BitRate   string `json:"bit_rate"`
-		Channels  int    `json:"channels,omitempty"`
+		CodecType  string `json:"codec_type"`
+		CodecName  string `json:"codec_name"`
+		BitRate    string `json:"bit_rate"`
+		Channels   int    `json:"channels,omitempty"`
+		FieldOrder string `json:"field_order"`
 	}
 	type probeFormat struct {
 		BitRate string `json:"bit_rate"`
@@ -1277,6 +1429,9 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 			if videoCodec == "" {
 				videoCodec = strings.TrimSpace(s.CodecName)
 				streamVideoBitrate = strings.TrimSpace(s.BitRate)
+				// 隔行检测：ffprobe field_order 为 tt/bb/tb/bt 表示隔行扫描
+				fo := strings.ToLower(strings.TrimSpace(s.FieldOrder))
+				videoInterlaced = fo == "tt" || fo == "bb" || fo == "tb" || fo == "bt"
 			}
 		case "audio":
 			codec := strings.TrimSpace(s.CodecName)
@@ -1341,20 +1496,21 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 			}
 		}
 		mediaInfoCache.cache[filePath] = &mediaInfoCacheEntry{
-			videoCodec:               videoCodec,
-			allAudioIsAAC:            allAudioIsAAC,
-			allAudioIsMP3:            allAudioIsMP3,
-			allAudioBrowserSupported: allAudioBrowserSupported,
-			videoBitrate:             videoBitrate,
-			audioBitrate:             audioBitrate,
-			audioCodecStr:            audioCodecStr,
-			modTime:                  fileInfo.ModTime(),
+				videoCodec:               videoCodec,
+				allAudioIsAAC:            allAudioIsAAC,
+				allAudioIsMP3:            allAudioIsMP3,
+				allAudioBrowserSupported: allAudioBrowserSupported,
+				videoBitrate:             videoBitrate,
+				audioBitrate:             audioBitrate,
+				audioCodecStr:            audioCodecStr,
+				videoInterlaced:          videoInterlaced,
+				modTime:                  fileInfo.ModTime(),
+			}
+			mediaInfoCache.Unlock()
 		}
-		mediaInfoCache.Unlock()
-	}
 
-	log.Printf("[getMediaInfo] ffprobe完成: file=%s 总耗时=%dms (stat=%dms preheat=%dms ffprobe=%dms) vCodec=%s aCodec=%s",
-		filepath.Base(filePath), time.Since(totalStart).Milliseconds(), statMs, preheatMs, ffprobeMs, videoCodec, audioCodecStr)
+		log.Printf("[getMediaInfo] ffprobe完成: file=%s 总耗时=%dms (stat=%dms preheat=%dms ffprobe=%dms) vCodec=%s aCodec=%s interlaced=%t",
+			filepath.Base(filePath), time.Since(totalStart).Milliseconds(), statMs, preheatMs, ffprobeMs, videoCodec, audioCodecStr, videoInterlaced)
 
 	return
 }
@@ -1652,7 +1808,7 @@ func CheckTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	videoCodec, _, _, allAudioBrowserSupported, _, _, _ := getMediaInfo(foundPath)
+	videoCodec, _, _, allAudioBrowserSupported, _, _, _, _ := getMediaInfo(foundPath)
 	videoIsH264 := strings.EqualFold(videoCodec, "h264")
 
 	result := TranscodeStatus{
@@ -1746,7 +1902,7 @@ func TrackSwitchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 需要用FFmpeg重组
-	videoCodec, _, _, allAudioBrowserSupported, videoBitrate, audioBitrate, _ := getMediaInfo(foundPath)
+	videoCodec, _, _, allAudioBrowserSupported, videoBitrate, audioBitrate, _, _ := getMediaInfo(foundPath)
 	videoIsH264 := strings.EqualFold(videoCodec, "h264")
 	audioSupported := allAudioBrowserSupported
 

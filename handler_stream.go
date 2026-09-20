@@ -74,7 +74,7 @@ func streamCapacityOK() bool {
 }
 
 // buildStreamArgs 构建FFmpeg流媒体转码参数
-func buildStreamArgs(foundPath string, trackIndex int, quality string, encoder string) []string {
+func buildStreamArgs(foundPath string, trackIndex int, quality string, encoder string, interlaced bool) []string {
 	args := []string{
 		"-analyzeduration", "2000000", // 2秒分析，更准确检测编码格式
 		"-fflags", "+genpts+discardcorrupt",
@@ -92,11 +92,20 @@ func buildStreamArgs(foundPath string, trackIndex int, quality string, encoder s
 	args = append(args, "-map", "0:v:0")
 	args = append(args, "-map", fmt.Sprintf("0:a:%d", trackIndex))
 
-	// 视频滤镜：降分辨率（KTV画面降分辨率是提升画质最有效的手段）
+	// 视频滤镜：降分辨率（KTV画面降分辨率是提升画质最有效的手段）。
+	// 隔行源需先 yadif 去隔行，否则浏览器解码器对隔行H264会卡死/花屏
 	if quality == "high" {
-		args = append(args, "-vf", "scale=-2:720")
+		if interlaced {
+			args = append(args, "-vf", "yadif=0:0:0,scale=-2:720")
+		} else {
+			args = append(args, "-vf", "scale=-2:720")
+		}
 	} else {
-		args = append(args, "-vf", "scale=-2:480")
+		if interlaced {
+			args = append(args, "-vf", "yadif=0:0:0,scale=-2:480")
+		} else {
+			args = append(args, "-vf", "scale=-2:480")
+		}
 	}
 
 	// 视频编码器（KTV优化：低运动场景用较长GOP+film调优）
@@ -432,16 +441,20 @@ func StreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	ffmpegPath := getFFmpegPath()
 
+	// 检测源是否隔行：隔行的H264（如1080i）浏览器解码器会卡死，实时流需先 yadif 去隔行。
+	// getMediaInfo 结果有缓存，首次后的开销可忽略。
+	_, _, _, _, _, _, _, interlaced := getMediaInfo(foundPath)
+
 	// 三级回退策略：GPU全流水线 → CPU解码+GPU编码 → 纯CPU编码
 	if videoEncoder != "libx264" {
 		// 第一级：GPU全流水线（-hwaccel cuda + NVENC）
-		args := buildStreamArgs(foundPath, trackIndex, quality, videoEncoder)
+		args := buildStreamArgs(foundPath, trackIndex, quality, videoEncoder, interlaced)
 		if tryStream(w, r, ffmpegPath, args, videoEncoder+"(全流水线)") {
 			return
 		}
 		// 第二级：CPU解码 + GPU编码（无 -hwaccel）
 		fmt.Printf("[流媒体] 降级: CPU解码 + GPU编码(%s)\n", videoEncoder)
-		argsNoHwAccel := buildStreamArgsNoHwAccel(foundPath, trackIndex, quality, videoEncoder)
+		argsNoHwAccel := buildStreamArgsNoHwAccel(foundPath, trackIndex, quality, videoEncoder, interlaced)
 		if tryStream(w, r, ffmpegPath, argsNoHwAccel, videoEncoder) {
 			return
 		}
@@ -450,7 +463,7 @@ func StreamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// CPU编码（libx264）
-	args := buildStreamArgs(foundPath, trackIndex, quality, "libx264")
+	args := buildStreamArgs(foundPath, trackIndex, quality, "libx264", interlaced)
 	if !tryStream(w, r, ffmpegPath, args, "libx264") {
 		http.Error(w, "转码启动失败", 500)
 	}
@@ -458,7 +471,7 @@ func StreamHandler(w http.ResponseWriter, r *http.Request) {
 
 // buildStreamArgsNoHwAccel 构建流媒体参数（CPU解码 + GPU编码，降级模式）
 // 不添加 -hwaccel cuda，仅用GPU做编码，数据需CPU→GPU搬运
-func buildStreamArgsNoHwAccel(foundPath string, trackIndex int, quality string, encoder string) []string {
+func buildStreamArgsNoHwAccel(foundPath string, trackIndex int, quality string, encoder string, interlaced bool) []string {
 	args := []string{
 		"-analyzeduration", "2000000",
 		"-fflags", "+genpts+discardcorrupt",
@@ -469,11 +482,19 @@ func buildStreamArgsNoHwAccel(foundPath string, trackIndex int, quality string, 
 	args = append(args, "-map", "0:v:0")
 	args = append(args, "-map", fmt.Sprintf("0:a:%d", trackIndex))
 
-	// 视频滤镜
+	// 视频滤镜（隔行源需先 yadif 去隔行）
 	if quality == "high" {
-		args = append(args, "-vf", "scale=-2:720")
+		if interlaced {
+			args = append(args, "-vf", "yadif=0:0:0,scale=-2:720")
+		} else {
+			args = append(args, "-vf", "scale=-2:720")
+		}
 	} else {
-		args = append(args, "-vf", "scale=-2:480")
+		if interlaced {
+			args = append(args, "-vf", "yadif=0:0:0,scale=-2:480")
+		} else {
+			args = append(args, "-vf", "scale=-2:480")
+		}
 	}
 
 	// 编码器参数（与buildStreamArgs相同，但无-hwaccel cuda）

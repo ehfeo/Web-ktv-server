@@ -758,6 +758,28 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         }
     }
 
+    // 规则C（边写边播）：队列中无任何"已就绪"可播曲目时，
+    // 若排在最前面的曲目已真正进入转码（transcoding，非等待），
+    // 直接用其 growUrl（边写盘边播放的分片MP4）实时播放，无需等待转码完成。
+    // 仍在等待转码的曲目（waiting）继续排队，由其前端点播页共同参与。
+    function ruleCPlay(){
+        if(currentPlayingIndex >= 0 && currentPlayingIndex < queue.length) return; // 已在播放
+        // 存在已就绪曲目时交由 tryAutoPlay 处理
+        for(var i = 0; i < queue.length; i++){
+            if(queue[i].status === "ready") return;
+        }
+        // 找排在最前、且已进入转码且有边写边播地址的曲目
+        for(var i = 0; i < queue.length; i++){
+            if(queue[i].status === "transcoding" && queue[i].growUrl){
+                currentPlayingIndex = i;
+                renderQueue();
+                showStatus('▶ 边转边播: ' + (queue[i].displayName||queue[i].name).replace(/\.[^.]+$/, ''), 3000);
+                playQueueItem(i);
+                return;
+            }
+        }
+    }
+
     function renderQueue(){
         var box = document.getElementById("queueList");
         var html = "";
@@ -889,6 +911,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         } else if(isStreamMode()){
             // 省流模式：使用流媒体实时转码
             url = '/api/stream?name='+encodeURIComponent(item.path)+'&trackIndex='+lastTrackIndex+'&quality=high&_t='+Date.now();
+        } else if(item.growUrl){
+            // 规则C（边写边播）：转码尚未完成，用边写盘边播放的分片MP4地址实时播放
+            url = item.growUrl;
         } else {
             url = '/file?name='+encodeURIComponent(item.path);
         }
@@ -1457,6 +1482,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                                 if(data.trackWarning){
                                     queue[idx].trackWarning = data.trackWarning;
                                 }
+                                if(data.growUrl){
+                                    queue[idx].growUrl = data.growUrl;
+                                }
                                 if(data.outputPath && data.status === "completed"){
                                     queue[idx].path = data.outputPath;
                                     queue[idx].name = data.outputPath.split(/[\\/]/).pop();
@@ -1465,6 +1493,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                                     tryAutoPlay();
                                 } else {
                                     renderQueue();
+                                    ruleCPlay();
                                     if(data.status === "ready"){
                                         tryAutoPlay();
                                     }
