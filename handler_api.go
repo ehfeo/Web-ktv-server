@@ -34,6 +34,11 @@ func SongListHandler(w http.ResponseWriter, r *http.Request) {
 
 	songs, total := getMediaListPaged(page, pageSize, keyword)
 
+	// 标记上传待审核条目，前端据此显示"待审核"红字（与搜索接口一致）
+	for i := range songs {
+		markUploadReview(&songs[i])
+	}
+
 	result := struct {
 		Songs      []MediaFile `json:"songs"`
 		Total      int         `json:"total"`

@@ -44,6 +44,7 @@ Language: [中文](#中文) | [English](#english)
 
 #### 其他
 - 网页拖拽上传歌曲，上传后自动增量扫描，含内容审核
+- 待审核文件在搜索/点播条目标注"待审核"，点播时自动引导进入审核页
 - 曲库缓存，二次启动秒级加载
 - 缺歌登记，自动记录搜不到的关键词
 - 支持 HEVC/H.265、WMA/APE/DSD 等自动转码/实时推流
@@ -151,6 +152,7 @@ A lightweight LAN KTV dual-screen song-selection system. A ~10 MB program turns 
 
 #### Others
 - Drag-and-drop upload with auto incremental re-scan and content review
+- Pending-review files flagged "待审核" in search/playlist items; clicking auto-opens the review page
 - Library cache, instant second startup
 - Missing-song registration, records unsearchable keywords automatically
 - HEVC/H.265, WMA/APE/DSD etc. auto-transcode / real-time streaming

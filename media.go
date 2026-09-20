@@ -24,6 +24,17 @@ type MediaFile struct {
 	Size        int64  `json:"size"`        // 文件大小（字节）
 	PinyinInit  string `json:"pinyinInit"`   // 预计算的拼音首字母，用于拼音搜索
 	PinyinFull  string `json:"pinyinFull"`   // 预计算的拼音全拼，用于全拼搜索
+	Reviewed    *bool  `json:"reviewed,omitempty"` // 审核状态，only: false=未审核待审核，nil=非上传/已过审(无需标记)
+}
+
+// markUploadReview 按来源标记审核状态：uploads 目录下的上传文件一律待审核（reviewFileAllowed 规则），
+// 其余（正常曲库/已审核目录）不做标记。供搜索、浏览分页等返回 MediaFile 的接口统一调用，
+// 前端据此在条目上显示"待审核"。
+func markUploadReview(mf *MediaFile) {
+	if uploadDirPath != "" && filepath.Clean(mf.Dir) == filepath.Clean(uploadDirPath) {
+		f := false
+		mf.Reviewed = &f
+	}
 }
 
 // parseFilenameFields 按规则 歌手-歌名-语种-歌曲类别 解析文件名

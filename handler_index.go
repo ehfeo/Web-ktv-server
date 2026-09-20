@@ -730,9 +730,22 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                     tryAutoPlay();
                 }
             } else {
-                item.status = "ready";
-                renderQueue();
-                tryAutoPlay();
+                // 403 未审核：服务端返回 {"message":"该资源正在审核中..."}，拦截并引导进入审核页
+                var rejMsg = '';
+                try {
+                    var jd = JSON.parse(xhr.responseText);
+                    if (jd && jd.message) rejMsg = jd.message;
+                } catch(e) {}
+                if (rejMsg.indexOf('审核') >= 0) {
+                    item.status = "pending_review";
+                    renderQueue();
+                    showStatus('该资源正在审核中，暂不可点播');
+                    window.open('/review');
+                } else {
+                    item.status = "ready";
+                    renderQueue();
+                    tryAutoPlay();
+                }
             }
         };
         xhr.onerror = function(){
@@ -815,6 +828,8 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
                 if(item.queuePosition !== undefined && item.queuePosition > 0){
                     html += ' <span style="color:#5bc0de;">(排队: 第'+item.queuePosition+'首)</span>';
                 }
+            } else if(item.status === "pending_review"){
+                html += '<span style="color:#f0ad4e; margin-left: 8px;">待审核</span>';
             } else if(item.status === "checking"){
                 html += '<span style="color:#ccc; margin-left: 8px;">检查中...</span>';
             } else if(item.status === "ready"){
@@ -1102,6 +1117,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             var fontSize = calculateFontSize(showName);
             html += '<div class="song-item" data-path="' + song.path + '" data-type="' + song.type + '" onclick="addToQueue(\'' + song.path + '\',\'' + song.name + '\',\'' + song.type + '\',\'' + (showName !== song.name ? showName.replace(/'/g, "\\'") : '') + '\')">';
             html += '<span class="song-name" style="font-size:' + fontSize + 'px;">' + showName + '</span>';
+            if(song.reviewed === false){
+                html += '<span style="color:#ff4d4f;font-size:11px;font-weight:bold;line-height:1.2;">待审核</span>';
+            }
             html += '</div>';
         }
         songList.innerHTML = html;
@@ -2225,6 +2243,8 @@ func SongSearchHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if match {
+			// 来源判断：uploads 目录下的未审核上传文件，前端据此在条目上显示"待审核"
+			markUploadReview(&item)
 			results = append(results, item)
 		}
 	}

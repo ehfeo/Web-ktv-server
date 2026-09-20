@@ -173,6 +173,8 @@ func CheckAndAddTranscodeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 审核拦截：未经审核的上传文件不允许申请转码（否则转码产物会绕过播放审核）
 	if !reviewFileAllowed(foundPath) {
+		log.Printf("[点播拦截] 文件未审核，拒绝点播: file=%s requestKey=%s 请先在审核页面(/review)审核",
+			filepath.Base(foundPath), req.RequestKey)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`{"success":false,"message":"该资源正在审核中，暂不可点播。","needsTranscode":false}`))
@@ -659,13 +661,12 @@ func findMediaFile(name string) string {
 	// 1. 优先从内存曲库映射表查找（O(1)）
 	lookupStart := time.Now()
 	if absPath, ok := lookupAbsPath(name); ok {
-		lookupMs := time.Since(lookupStart).Milliseconds()
 		statStart := time.Now()
 		_, statErr := os.Stat(absPath)
 		statMs := time.Since(statStart).Milliseconds()
 		if statErr == nil {
-			log.Printf("[findMediaFile] 步骤1 内存映射命中 lookup=%dms stat=%dms 总耗时=%dms name=%s",
-				lookupMs, statMs, time.Since(findStart).Milliseconds(), name)
+			// 内存映射命中属O(1)高频成功路径：浏览器对mp4的Range分段请求会大量触发，
+			// 每请求一行会导致控制台刷屏。成功命中不再打日志，仅保留异常/慢路径日志。
 			return absPath
 		}
 		log.Printf("[findMediaFile] 内存映射命中但文件不存在: name=%s absPath=%s stat=%dms err=%v", name, absPath, statMs, statErr)
@@ -674,7 +675,6 @@ func findMediaFile(name string) string {
 	}
 
 	// 2. 查findMediaFileCache
-	cacheStart := time.Now()
 	findMediaFileCache.RLock()
 	if p, ok := findMediaFileCache.cache[name]; ok {
 		findMediaFileCache.RUnlock()
@@ -682,21 +682,19 @@ func findMediaFile(name string) string {
 		_, statErr := os.Stat(p)
 		statMs := time.Since(statStart).Milliseconds()
 		if statErr == nil {
-			log.Printf("[findMediaFile] 步骤2 缓存命中 lookup=%dms stat=%dms 总耗时=%dms name=%s",
-				time.Since(cacheStart).Milliseconds(), statMs, time.Since(findStart).Milliseconds(), name)
+			// 与步骤1一致：成功命中属高频成功路径，不再打日志，仅保留异常/慢路径日志。
 			return p
 		}
 		log.Printf("[findMediaFile] 缓存命中但文件不存在: name=%s path=%s stat=%dms", name, p, statMs)
 	} else {
 		findMediaFileCache.RUnlock()
-		log.Printf("[findMediaFile] 步骤2 缓存未命中 lookup=%dms name=%s", time.Since(cacheStart).Milliseconds(), name)
 	}
 
 	// 3. 裸文件名查找（无目录前缀时，通过basename反向映射查找）
 	if !strings.Contains(name, "/") {
 		basenameStart := time.Now()
 		if absPath, ok := lookupAbsPathByBasename(name); ok {
-			log.Printf("[findMediaFile] 步骤3 basename映射命中 总耗时=%dms name=%s", time.Since(basenameStart).Milliseconds(), name)
+			// 成功命中高频路径，不再打日志，避免Range分段请求刷屏。
 			return absPath
 		}
 		log.Printf("[findMediaFile] 步骤3 basename映射未命中 耗时=%dms name=%s", time.Since(basenameStart).Milliseconds(), name)
