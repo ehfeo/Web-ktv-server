@@ -153,6 +153,55 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         .qr-modal-content button{margin-top:15px;padding:8px 24px;border:1px solid #2a6496;border-radius:4px;background:linear-gradient(180deg,#428bca,#337ab9);color:#fff;cursor:pointer;font-size:14px;font-weight:bold;box-shadow:0 2px 4px rgba(0,0,0,0.2);transition:background 0.15s,box-shadow 0.15s}
         .qr-modal-content button:hover{background:linear-gradient(180deg,#4e97d1,#3578b5);box-shadow:0 3px 6px rgba(0,0,0,0.25)}
         .qr-modal-content button:active{background:#2a6496;box-shadow:0 1px 2px rgba(0,0,0,0.2)}
+        /* ===== 磨砂幽灵水晶 样式（3D水晶液态玻璃）===== */
+        :root{
+            --crystal-blue: rgba(100,180,255,0.22);
+            --crystal-purple: rgba(180,140,255,0.25);
+            --crystal-white: rgba(255,255,255,0.35);
+            --crystal-border: rgba(255,255,255,0.18);
+            --crystal-shadow: 0 8px 32px rgba(0,0,0,0.25);
+            --crystal-radius: 12px;
+        }
+        /* 水晶按钮基础：磨砂幽灵 */
+        .crystal-btn{
+            position:relative;
+            border-radius:var(--crystal-radius);
+            border:1px dashed rgba(255,255,255,0.25);
+            background:rgba(255,255,255,0.06);
+            backdrop-filter: blur(12px) saturate(160%);
+            -webkit-backdrop-filter: blur(12px) saturate(160%);
+            box-shadow: var(--crystal-shadow), inset 0 1px 0 var(--crystal-white), inset 0 -1px 0 rgba(0,0,0,0.15);
+            color:#fff;
+            cursor:pointer;
+            transition: all 0.22s ease;
+            overflow:hidden;
+        }
+        .crystal-btn::before{
+            content:"";position:absolute;top:0;left:8%;right:8%;height:45%;
+            background:linear-gradient(180deg, rgba(255,255,255,0.22), transparent);
+            border-radius:inherit;pointer-events:none;
+        }
+        .crystal-btn:hover{transform: translateY(-3px);border-color:rgba(255,255,255,0.35);box-shadow:0 12px 40px rgba(0,0,0,0.35), inset 0 1px 0 var(--crystal-white), inset 0 -1px 0 rgba(0,0,0,0.15)}
+        .crystal-btn:active{transform: translateY(2px) scale(0.98);box-shadow:0 4px 16px rgba(0,0,0,0.2), inset 0 2px 6px rgba(0,0,0,0.2)}
+        /* 搜索结果条目：磨砂幽灵水晶按钮（深蓝紫半透明渐变 + 发光虚线 + 吸顶高光 + 幽灵感外发光，与模板一致） */
+        .song-item{padding:6px 8px;background:linear-gradient(180deg, rgba(50,60,130,0.70), rgba(25,30,70,0.60));border:1px dashed rgba(140,160,255,0.45);border-radius:12px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;transition:all 0.22s ease;overflow:hidden;position:relative;box-shadow:0 0 20px rgba(80,100,200,0.28), inset 0 1px 1px rgba(190,215,255,0.55), inset 0 -1px 1px rgba(0,0,0,0.22)}
+        .song-item::before{content:"";position:absolute;top:0;left:6%;right:6%;height:46%;background:linear-gradient(180deg, rgba(255,255,255,0.14), transparent);border-radius:inherit;pointer-events:none}
+        .song-item:hover{transform:translateY(-3px);border-color:rgba(170,195,255,0.7);box-shadow:0 0 28px rgba(90,115,220,0.4), inset 0 1px 1px rgba(210,230,255,0.7), inset 0 -1px 1px rgba(0,0,0,0.22)}
+        .song-item:active{transform:translateY(2px) scale(0.98)}
+        .song-item .song-name{color:rgba(240,244,255,0.95);text-shadow:0 0 8px rgba(160,180,255,0.5);transition:color 0.15s}
+        /* 水晶条目列表容器：播放列表 */
+        #queueList{backdrop-filter:blur(14px) saturate(150%);-webkit-backdrop-filter:blur(14px) saturate(150%);background:rgba(255,255,255,0.05);border:1px solid var(--crystal-border);border-radius:var(--crystal-radius);box-shadow:var(--crystal-shadow);overflow:hidden}
+        .queue-item{padding:10px 12px;background:rgba(255,255,255,0.05);margin:4px 0;border-radius:10px;display:flex;justify-content:space-between;align-items:center;box-shadow:var(--crystal-shadow), inset 0 1px 0 var(--crystal-white), inset 0 -1px 0 rgba(0,0,0,0.15);border:1px solid rgba(255,255,255,0.14);transition:all 0.22s ease;position:relative;overflow:hidden}
+        .queue-item::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.15),transparent);opacity:0;transition:0.2s}
+        .queue-item:hover{background:rgba(255,255,255,0.09);transform:translateY(-2px)}
+        .queue-item:hover::before{opacity:1}
+        /* 播放列表右侧操作按钮：水晶小按钮 */
+        .queue-item .top-btn,.queue-item .del-btn{position:relative;padding:3px 12px;border-radius:8px;font-size:11px;font-weight:bold;cursor:pointer;transition:all 0.22s ease;overflow:hidden;border:1px dashed rgba(255,255,255,0.3);color:#fff}
+        .queue-item .top-btn{background:rgba(100,180,255,0.16);box-shadow:var(--crystal-shadow), inset 0 1px 0 var(--crystal-white)}
+        .queue-item .del-btn{background:rgba(217,83,79,0.25);box-shadow:var(--crystal-shadow), inset 0 1px 0 var(--crystal-white)}
+        .queue-item .top-btn:hover{transform:translateY(-2px);border-color:rgba(255,255,255,0.45)}
+        .queue-item .del-btn:hover{transform:translateY(-2px);border-color:rgba(255,255,255,0.45)}
+        .queue-item .top-btn:active,.queue-item .del-btn:active{transform:translateY(1px) scale(0.97)}
     </style>
 </head>
 <body>
@@ -233,7 +282,7 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             <button class="control-btn" onclick="openSettings()">设置</button>
         </div>
         <div class="queue-area">
-            <div class="queue-title">播放队列</div>
+            <div class="queue-title">播放队列<button class="control-btn" style="margin-left:10px;padding:2px 12px;font-size:13px;font-weight:bold;color:#fff;background:linear-gradient(180deg,#e74c3c,#c0392b);border:1px solid #a93226;box-shadow:0 2px 4px rgba(0,0,0,0.2)" onclick="downloadQueueSongs()" title="把播放队列里已点的歌曲下载到本机">下载已点歌曲</button></div>
             <div id="queueList"></div>
             <button class="control-btn" style="width:100%;margin-top:8px;background:linear-gradient(180deg,#f0ad4e,#ec971f);border:1px solid #d58512;color:#fff;box-shadow:0 2px 4px rgba(0,0,0,0.2);font-weight:bold;font-size:15px" onclick="randomSong()">随机点歌</button>
         </div>
@@ -250,6 +299,23 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         <div class="qr-info" id="qrUrl"></div>
         <div class="qr-status" id="qrStatus"></div>
         <button onclick="closeQRModal()">关闭</button>
+    </div>
+</div>
+
+<div class="qr-modal" id="downloadModal">
+    <div class="qr-modal-content" style="max-width:400px;text-align:left">
+        <h2 style="text-align:center">下载已点歌曲</h2>
+        <div class="qr-info" id="downloadModalInfo" style="text-align:center"></div>
+        <div style="margin:14px 0">
+            <label style="display:block;padding:8px 10px;margin:5px 0;border:1px solid #ddd;border-radius:4px;cursor:pointer;color:#333;font-size:14px"><input type="radio" name="dlmode" value="1" checked style="margin-right:8px">原文件下载（保持原样，含视频画面）</label>
+            <label style="display:block;padding:8px 10px;margin:5px 0;border:1px solid #ddd;border-radius:4px;cursor:pointer;color:#333;font-size:14px"><input type="radio" name="dlmode" value="2" style="margin-right:8px">仅下载音频数据流（按原编码，如AAC/FLAC/OPUS）</label>
+            <label style="display:block;padding:8px 10px;margin:5px 0;border:1px solid #ddd;border-radius:4px;cursor:pointer;color:#333;font-size:14px"><input type="radio" name="dlmode" value="3" style="margin-right:8px">下载为MP3（非MP3音轨统一转码 256kbps）</label>
+        </div>
+        <div class="qr-info" style="font-size:12px;color:#999;text-align:center">多音轨文件会自动下载为 原文件名(音轨1)、原文件名(音轨2) 等多个文件</div>
+        <div style="text-align:center;margin-top:10px">
+            <button onclick="startQueueDownload()">开始下载</button>
+            <button onclick="closeDownloadModal()" style="margin-left:10px;background:linear-gradient(180deg,#aaa,#888);border-color:#777">取消</button>
+        </div>
     </div>
 </div>
 
@@ -1067,6 +1133,67 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         if(playerWin && !playerWin.closed){
             playerWin.postMessage(msg,'*');
         }
+    }
+
+    // ========== 下载已点歌曲 ==========
+    function downloadQueueSongs(){
+        if(!queue || queue.length===0){ showToast('队列为空，请先点歌'); return; }
+        document.getElementById('downloadModalInfo').textContent =
+            '将下载播放队列中的 ' + queue.length + ' 首歌曲';
+        document.getElementById('downloadModal').style.display = 'flex';
+    }
+    function closeDownloadModal(){
+        document.getElementById('downloadModal').style.display = 'none';
+    }
+    function triggerDownload(url){
+        // 同源 + 服务端 Content-Disposition: attachment，浏览器直接存盘
+        try{
+            var a = document.createElement('a');
+            a.href = url; a.download = '';
+            document.body.appendChild(a); a.click();
+            setTimeout(function(){ if(a.parentNode) document.body.removeChild(a); }, 1000);
+        }catch(e){
+            window.open(url, '_blank');
+        }
+    }
+    function dlSleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+    async function startQueueDownload(){
+        var mode = document.querySelector('input[name="dlmode"]:checked').value;
+        closeDownloadModal();
+        for(var i=0;i<queue.length;i++){
+            var item = queue[i];
+            var nm = (item.displayName || item.name || '').replace(/\.[^.]+$/, '');
+            showStatus('⬇ 正在准备下载(' + (i+1) + '/' + queue.length + '): ' + nm, 120000);
+            // Everything 直播项按绝对路径取文件；普通曲库项走曲库映射
+            var q = item.direct
+                ? ('abs=1&p=' + encodeURIComponent(item.abs || item.path))
+                : ('name=' + encodeURIComponent(item.path));
+            try{
+                var resp = await fetch('/api/download/tracks?' + q);
+                var data = await resp.json();
+                if(!data || !data.success){
+                    showToast('跳过(无法读取): ' + nm);
+                    await dlSleep(600);
+                    continue;
+                }
+                var tracks = data.tracks || [];
+                if(mode !== '1' && tracks.length === 0){
+                    showToast('跳过(无音频轨): ' + nm);
+                    await dlSleep(600);
+                    continue;
+                }
+                // mode=1 原文件只有一个；mode=2/3 每个音轨一个文件
+                var count = (mode === '1') ? 1 : tracks.length;
+                for(var t=0;t<count;t++){
+                    triggerDownload('/api/download?' + q + '&mode=' + mode + '&track=' + t);
+                    await dlSleep(900);
+                }
+            }catch(e){
+                showToast('下载出错: ' + nm);
+                await dlSleep(600);
+            }
+        }
+        showStatus('✅ 已全部发起下载', 3000);
     }
 
     function loadSongs(page, keyword) {
@@ -1949,8 +2076,9 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         document.getElementById('singerList').innerHTML = '<div class="loading" style="text-align:center;padding:30px;color:#5bc0de;font-size:16px">正在加载歌手索引...</div>';
         fetch('/api/singers').then(function(r){return r.json();}).then(function(data){
             singerData = data;
+            var letters = (data.letters || []).sort();
+            singerLetters = letters;
             renderSingerLetters();
-            var letters = Object.keys(data).sort();
             if (letters.length > 0) selectSingerLetter(letters[0]);
         }).catch(function(){
             document.getElementById('singerList').innerHTML = '<div style="text-align:center;color:#d9534f;padding:20px">加载失败，请重试</div>';
@@ -1958,11 +2086,10 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     function renderSingerLetters() {
-        if (!singerData) return;
-        var letters = Object.keys(singerData).sort();
+        if (!singerLetters) return;
         var html = '';
-        for (var i = 0; i < letters.length; i++) {
-            html += '<span onclick="selectSingerLetter(\'' + letters[i] + '\')" id="letter_' + letters[i] + '">' + letters[i] + '</span>';
+        for (var i = 0; i < singerLetters.length; i++) {
+            html += '<span onclick="selectSingerLetter(\'' + singerLetters[i] + '\')" id="letter_' + singerLetters[i] + '">' + singerLetters[i] + '</span>';
         }
         document.getElementById('singerLetters').innerHTML = html;
     }
@@ -1974,12 +2101,31 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
         for (var i = 0; i < spans.length; i++) {
             spans[i].className = spans[i].id === 'letter_' + letter ? 'active' : '';
         }
+        // 切换字母后让歌手名单回到最顶部
+        var sl = document.getElementById('singerList');
+        if (sl) { try { sl.scrollTop = 0; } catch(e) {} sl.scrollIntoView({block:'start'}); }
+        loadPagedSingers(letter, 1);
+    }
+
+    // ===== 歌手名单分页 =====
+    var singerLetters = [];
+    var sPagerPage = 1;
+    var sPagerTotalPages = 1;
+    function loadPagedSingers(letter, page) {
+        currentSingerLetter = letter;
+        sPagerPage = page;
         var singerList = document.getElementById('singerList');
-        // 显示加载中提示（数据量大时渲染需要时间）
         singerList.innerHTML = '<div class="loading" style="text-align:center;padding:30px;color:#5bc0de;font-size:15px">正在加载歌手列表...</div>';
-        // 用setTimeout让浏览器先渲染loading提示，再做实际渲染
-        setTimeout(function() {
-            var singers = singerData[letter] || [];
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/singers?letter=' + encodeURIComponent(letter) + '&page=' + page + '&pageSize=' + pageSize, true);
+        xhr.onload = function() {
+            if (xhr.status !== 200 || !xhr.responseText) {
+                singerList.innerHTML = '<div style="text-align:center;color:#d9534f;padding:20px">加载失败，请重试</div>';
+                return;
+            }
+            var data = JSON.parse(xhr.responseText);
+            sPagerTotalPages = data.totalPages;
+            var singers = data.items || [];
             var html = '<div class="singer-grid">';
             for (var i = 0; i < singers.length; i++) {
                 html += '<div class="singer-btn" onclick="loadSingerSongs(\'' + singers[i].name.replace(/'/g, "\\'") + '\')">';
@@ -1990,106 +2136,237 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
             html += '</div>';
             if (singers.length === 0) {
                 html = '<div style="text-align:center;color:#ccc;padding:20px">暂无歌手</div>';
+            } else {
+                html += '<div style="display:flex;justify-content:center;padding:12px 0;gap:6px">' + buildSingerIndexPagination() + '</div>';
             }
             singerList.innerHTML = html;
-        }, 0);
+        };
+        xhr.send();
+    }
+    function sPagerChange(page) {
+        if (page < 1 || page > sPagerTotalPages) return;
+        loadPagedSingers(currentSingerLetter, page);
+    }
+    function buildSingerIndexPagination() {
+        if (sPagerTotalPages <= 1) return '';
+        var cur = sPagerPage, total = sPagerTotalPages;
+        var html = '<button class="page-btn" onclick="sPagerChange(' + (cur - 1) + ')" ' + (cur === 1 ? 'disabled' : '') + '>上一页</button>';
+        var maxBtns = 7;
+        if (total <= maxBtns) {
+            for (var i = 1; i <= total; i++) {
+                html += '<button class="page-btn' + (i === cur ? ' active' : '') + '" onclick="sPagerChange(' + i + ')">' + i + '</button>';
+            }
+        } else {
+            var half = Math.floor(maxBtns / 2);
+            var start = cur - half; if (start < 1) start = 1;
+            var end = start + maxBtns - 1; if (end > total) end = total; start = Math.max(1, end - maxBtns + 1);
+            for (var i = start; i <= end; i++) {
+                html += '<button class="page-btn' + (i === cur ? ' active' : '') + '" onclick="sPagerChange(' + i + ')">' + i + '</button>';
+            }
+        }
+        html += '<button class="page-btn" onclick="sPagerChange(' + (cur + 1) + ')" ' + (cur === total ? 'disabled' : '') + '>下一页</button>';
+        return html;
+    }
+
+    // ===== 分类歌单分页（按歌手/语种/曲种）=====
+    // 与 /api/songs 搜索一致：分页加载，避免 大曲库下全量渲染拖垮浏览器。
+    var pSongType = '';   // 'singer' | 'language' | 'category'
+    var pSongKey = '';
+    var pSongPage = 1;
+    var pSongTotal = 0;
+    var pSongTotalPages = 1;
+
+    function pSongBackHtml() {
+        if (pSongType === 'singer') return '<div class="singer-back" onclick="selectSingerLetter(\'' + currentSingerLetter + '\')">&#8592; 返回歌手列表</div>';
+        if (pSongType === 'language') return '<div class="singer-back" onclick="renderLanguageList(languageData)">&#8592; 返回语种列表</div>';
+        return '<div class="singer-back" onclick="renderCategoryList(categoryData)">&#8592; 返回曲种列表</div>';
+    }
+    function pSongTarget() {
+        if (pSongType === 'singer') return document.getElementById('singerList');
+        if (pSongType === 'language') return document.getElementById('languageList');
+        return document.getElementById('categoryList');
+    }
+    function loadPagedSongs(type, key, page) {
+        pSongType = type;
+        pSongKey = key;
+        pSongPage = page;
+        var target = pSongTarget();
+        target.innerHTML = '<div class="loading" style="text-align:center;padding:30px;color:#5bc0de;font-size:15px">正在加载...</div>';
+        var path = '/api/songs-by-singer?singer=';
+        if (type === 'language') path = '/api/songs-by-language?language=';
+        else if (type === 'category') path = '/api/songs-by-category?category=';
+        var url = path + encodeURIComponent(key) + '&page=' + page + '&pageSize=' + pageSize;
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.onload = function() {
+            if (xhr.status !== 200 || !xhr.responseText) {
+                target.innerHTML = pSongBackHtml() + '<div style="text-align:center;color:#d9534f;padding:20px">加载失败，请重试</div>';
+                return;
+            }
+            var data = JSON.parse(xhr.responseText);
+            pSongTotal = data.total;
+            pSongTotalPages = data.totalPages;
+            var songs = data.songs;
+            var html = pSongBackHtml();
+            html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + key + ' (' + pSongTotal + '首)</div>';
+            html += '<div class="singer-songs">';
+            if (!songs || songs.length === 0) {
+                html += '<div style="text-align:center;color:#ccc;padding:20px">暂无歌曲</div>';
+            } else {
+                for (var i = 0; i < songs.length; i++) {
+                    var s = songs[i];
+                    var showName = s.displayName || s.name;
+                    var fontSize = calculateFontSize(showName);
+                    html += '<div class="song-item" onclick="addToQueue(\'' + s.path + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">';
+                    html += '<span class="song-name" style="font-size:' + fontSize + 'px;">' + showName + '</span>';
+                    html += '</div>';
+                }
+            }
+            html += '</div>';
+            html += buildPagedSongsNav();
+            target.innerHTML = html;
+        };
+        xhr.send();
+    }
+    function pChangePage(page) {
+        if (page < 1 || page > pSongTotalPages) return;
+        loadPagedSongs(pSongType, pSongKey, page);
+    }
+    function buildPagedSongsNav() {
+        if (pSongTotalPages <= 1) return '';
+        var html = '<div style="display:flex;justify-content:center;padding:12px 0;gap:6px">';
+        html += '<button class="page-btn" onclick="pChangePage(' + (pSongPage - 1) + ')" ' + (pSongPage === 1 ? 'disabled' : '') + '>上一页</button>';
+        var maxBtns = 7;
+        if (pSongTotalPages <= maxBtns) {
+            for (var i = 1; i <= pSongTotalPages; i++) {
+                html += '<button class="page-btn' + (i === pSongPage ? ' active' : '') + '" onclick="pChangePage(' + i + ')">' + i + '</button>';
+            }
+        } else {
+            var half = Math.floor(maxBtns / 2);
+            var start = pSongPage - half;
+            if (start < 1) start = 1;
+            var end = start + maxBtns - 1;
+            if (end > pSongTotalPages) end = pSongTotalPages;
+            start = Math.max(1, end - maxBtns + 1);
+            for (var i = start; i <= end; i++) {
+                html += '<button class="page-btn' + (i === pSongPage ? ' active' : '') + '" onclick="pChangePage(' + i + ')">' + i + '</button>';
+            }
+        }
+        html += '<button class="page-btn" onclick="pChangePage(' + (pSongPage + 1) + ')" ' + (pSongPage === pSongTotalPages ? 'disabled' : '') + '>下一页</button>';
+        html += '</div>';
+        return html;
     }
 
     function loadSingerSongs(singer) {
         currentSingerName = singer;
-        var singerList = document.getElementById('singerList');
-        singerList.innerHTML = '<div class="loading" style="text-align:center;padding:30px;color:#5bc0de;font-size:15px">正在加载 ' + singer + ' 的歌曲...</div>';
-        fetch('/api/songs-by-singer?singer=' + encodeURIComponent(singer)).then(function(r){return r.json();}).then(function(songs){
-            var html = '<div class="singer-back" onclick="selectSingerLetter(\'' + currentSingerLetter + '\')">&#8592; 返回歌手列表</div>';
-            html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + singer + ' (' + songs.length + '首)</div>';
-            html += '<div class="singer-songs">';
-            for (var i = 0; i < songs.length; i++) {
-                var s = songs[i];
-                var showName = s.displayName || s.name;
-                var fontSize = calculateFontSize(showName);
-                html += '<div class="song-item" onclick="addToQueue(\'' + s.path + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">';
-                html += '<span class="song-name" style="font-size:' + fontSize + 'px;">' + showName + '</span>';
-                html += '</div>';
-            }
-            html += '</div>';
-            singerList.innerHTML = html;
-        }).catch(function(){
-            singerList.innerHTML = '<div style="text-align:center;color:#d9534f;padding:20px">加载失败，请重试</div>';
-        });
+        loadPagedSongs('singer', singer, 1);
     }
 
+    // 语种/曲种索引分页：接口已按 {items,total,...} 分页返回，前端同步分页渲染。
+    var pLangPage = 1, pLangTotalPages = 1;
+    var pCatPage = 1, pCatTotalPages = 1;
     function loadLanguageIndex() {
-        fetch('/api/languages').then(function(r){return r.json();}).then(function(data){
-            languageData = data;
-            renderLanguageList(data);
-        });
+        pLangPage = 1;
+        loadPagedLanguageList(1);
     }
-
+    function loadPagedLanguageList(page) {
+        pLangPage = page;
+        document.getElementById('languageList').innerHTML = '<div class="empty-hint">加载中...</div>';
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/languages?page=' + page + '&pageSize=' + pageSize, true);
+        xhr.onload = function() {
+            if (xhr.status !== 200 || !xhr.responseText) { document.getElementById('languageList').innerHTML = '<div class="empty-hint">加载失败</div>'; return; }
+            var data = JSON.parse(xhr.responseText);
+            languageData = data;
+            pLangTotalPages = data.totalPages;
+            renderLanguageList(data);
+        };
+        xhr.send();
+    }
     function renderLanguageList(data) {
+        var items = data && data.items ? data.items : (data || []);
         var html = '<div class="cat-grid">';
-        for (var i = 0; i < data.length; i++) {
-            html += '<div class="cat-btn" onclick="loadLanguageSongs(\'' + data[i].name.replace(/'/g, "\\'") + '\')">';
-            html += '<span class="cname">' + data[i].name + '</span>';
-            html += '<span class="ccount">' + data[i].count + '首</span>';
+        for (var i = 0; i < items.length; i++) {
+            html += '<div class="cat-btn" onclick="loadLanguageSongs(\'' + items[i].name.replace(/'/g, "\\'") + '\')">';
+            html += '<span class="cname">' + items[i].name + '</span>';
+            html += '<span class="ccount">' + items[i].count + '首</span>';
             html += '</div>';
         }
         html += '</div>';
+        if (items.length === 0) html = '<div class="empty-hint">暂无语种</div>';
+        else html += '<div style="display:flex;justify-content:center;padding:12px 0;gap:6px">' + buildIndexListPagination('lang') + '</div>';
         document.getElementById('languageList').innerHTML = html;
     }
 
     function loadLanguageSongs(lang) {
-        fetch('/api/songs-by-language?language=' + encodeURIComponent(lang)).then(function(r){return r.json();}).then(function(songs){
-            var html = '<div class="singer-back" onclick="renderLanguageList(languageData)">&#8592; 返回语种列表</div>';
-            html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + lang + ' (' + songs.length + '首)</div>';
-            html += '<div class="singer-songs">';
-            for (var i = 0; i < songs.length; i++) {
-                var s = songs[i];
-                var showName = s.displayName || s.name;
-                var fontSize = calculateFontSize(showName);
-                html += '<div class="song-item" onclick="addToQueue(\'' + s.path + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">';
-                html += '<span class="song-name" style="font-size:' + fontSize + 'px;">' + showName + '</span>';
-                html += '</div>';
-            }
-            html += '</div>';
-            document.getElementById('languageList').innerHTML = html;
-        });
+        loadPagedSongs('language', lang, 1);
     }
 
     function loadCategoryIndex() {
-        fetch('/api/categories').then(function(r){return r.json();}).then(function(data){
-            categoryData = data;
-            renderCategoryList(data);
-        });
+        pCatPage = 1;
+        loadPagedCategoryList(1);
     }
-
+    function loadPagedCategoryList(page) {
+        pCatPage = page;
+        document.getElementById('categoryList').innerHTML = '<div class="empty-hint">加载中...</div>';
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/api/categories?page=' + page + '&pageSize=' + pageSize, true);
+        xhr.onload = function() {
+            if (xhr.status !== 200 || !xhr.responseText) { document.getElementById('categoryList').innerHTML = '<div class="empty-hint">加载失败</div>'; return; }
+            var data = JSON.parse(xhr.responseText);
+            categoryData = data;
+            pCatTotalPages = data.totalPages;
+            renderCategoryList(data);
+        };
+        xhr.send();
+    }
     function renderCategoryList(data) {
+        var items = data && data.items ? data.items : (data || []);
         var html = '<div class="cat-grid">';
-        for (var i = 0; i < data.length; i++) {
-            html += '<div class="cat-btn" onclick="loadCategorySongs(\'' + data[i].name.replace(/'/g, "\\'") + '\')">';
-            html += '<span class="cname">' + data[i].name + '</span>';
-            html += '<span class="ccount">' + data[i].count + '首</span>';
+        for (var i = 0; i < items.length; i++) {
+            html += '<div class="cat-btn" onclick="loadCategorySongs(\'' + items[i].name.replace(/'/g, "\\'") + '\')">';
+            html += '<span class="cname">' + items[i].name + '</span>';
+            html += '<span class="ccount">' + items[i].count + '首</span>';
             html += '</div>';
         }
         html += '</div>';
+        if (items.length === 0) html = '<div class="empty-hint">暂无曲种</div>';
+        else html += '<div style="display:flex;justify-content:center;padding:12px 0;gap:6px">' + buildIndexListPagination('cat') + '</div>';
         document.getElementById('categoryList').innerHTML = html;
+    }
+    function indexListChange(kind, page) {
+        if (kind === 'lang') {
+            if (page < 1 || page > pLangTotalPages) return;
+            loadPagedLanguageList(page);
+        } else {
+            if (page < 1 || page > pCatTotalPages) return;
+            loadPagedCategoryList(page);
+        }
+    }
+    function buildIndexListPagination(kind) {
+        var cur = kind === 'lang' ? pLangPage : pCatPage;
+        var total = kind === 'lang' ? pLangTotalPages : pCatTotalPages;
+        if (total <= 1) return '';
+        var html = '<button class="page-btn" onclick="indexListChange(\'' + kind + '\',' + (cur - 1) + ')" ' + (cur === 1 ? 'disabled' : '') + '>上一页</button>';
+        var maxBtns = 7;
+        if (total <= maxBtns) {
+            for (var i = 1; i <= total; i++) {
+                html += '<button class="page-btn' + (i === cur ? ' active' : '') + '" onclick="indexListChange(\'' + kind + '\',' + i + ')">' + i + '</button>';
+            }
+        } else {
+            var half = Math.floor(maxBtns / 2);
+            var start = cur - half; if (start < 1) start = 1;
+            var end = start + maxBtns - 1; if (end > total) end = total; start = Math.max(1, end - maxBtns + 1);
+            for (var i = start; i <= end; i++) {
+                html += '<button class="page-btn' + (i === cur ? ' active' : '') + '" onclick="indexListChange(\'' + kind + '\',' + i + ')">' + i + '</button>';
+            }
+        }
+        html += '<button class="page-btn" onclick="indexListChange(\'' + kind + '\',' + (cur + 1) + ')" ' + (cur === total ? 'disabled' : '') + '>下一页</button>';
+        return html;
     }
 
     function loadCategorySongs(cat) {
-        fetch('/api/songs-by-category?category=' + encodeURIComponent(cat)).then(function(r){return r.json();}).then(function(songs){
-            var html = '<div class="singer-back" onclick="renderCategoryList(categoryData)">&#8592; 返回曲种列表</div>';
-            html += '<div style="padding:8px;color:#428bca;font-size:15px;text-align:center">' + cat + ' (' + songs.length + '首)</div>';
-            html += '<div class="singer-songs">';
-            for (var i = 0; i < songs.length; i++) {
-                var s = songs[i];
-                var showName = s.displayName || s.name;
-                var fontSize = calculateFontSize(showName);
-                html += '<div class="song-item" onclick="addToQueue(\'' + s.path + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">';
-                html += '<span class="song-name" style="font-size:' + fontSize + 'px;">' + showName + '</span>';
-                html += '</div>';
-            }
-            html += '</div>';
-            document.getElementById('categoryList').innerHTML = html;
-        });
+        loadPagedSongs('category', cat, 1);
     }
 
     window.addEventListener('resize', function(){

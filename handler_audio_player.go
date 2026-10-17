@@ -43,6 +43,27 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
 .lyric-shift-amt{color:#fff;font-size:12px;padding:3px 7px;background:#34495e;border-radius:4px;min-width:44px;text-align:center;user-select:none;line-height:16px}
 .toolbar input[type="color"]{width:30px;height:24px;border:1px solid #2c3e50;border-radius:6px;background:#6c757d;cursor:pointer;padding:0;vertical-align:middle;box-shadow:0 2px 4px rgba(0,0,0,0.25)}
 .player-controls{display:flex;align-items:center;gap:12px;padding:12px 20px;background:#1e2d3a;border-top:1px solid #2c3e50;box-shadow:0 -2px 8px rgba(0,0,0,0.2)}
+/* 电脑端峰值电平表：完全照搬手机端（L/R 双通道、-30/-20/-10/0 dB 刻度、橙色峰值保持、50ms 回落）。
+   独立绝对定位贴窗口左缘，与右上角工具栏同高度，互不干扰。
+   长度可拖动（右侧黑色 | 手柄），仅可加长；灯珠 flex:1 按比例变宽、间距(gap)固定不变。 */
+.pc-meter-wrap{position:absolute;top:8px;left:10px;z-index:11;display:flex;flex-direction:row;align-items:center;gap:4px;background:rgba(14,26,36,0.55);padding:4px 6px;border-radius:5px}
+.pc-meter-col{display:flex;flex-direction:column;gap:3px;width:200px;box-sizing:content-box}
+.meter-row{display:flex;align-items:center;gap:5px}
+.meter-row.meter-scale-row{margin-bottom:0}
+.meter-label{color:#7f8c8d;font-size:10px;font-family:Consolas,monospace;width:12px;text-align:right;user-select:none;line-height:9px}
+.pc-meter{display:flex;align-items:center;gap:2px;width:100%;height:11px;background:#101d2a;border-radius:3px;padding:0 3px;box-sizing:border-box}
+.pc-meter-scale{position:relative;flex:1;height:9px;font-size:9px;color:#6b7b85;font-weight:bold}
+.pc-meter-scale span{position:absolute;top:0;transform:translateX(-50%);line-height:9px;text-shadow:0 1px 1px rgba(0,0,0,0.5)}
+.pc-meter-scale .scale-end{left:100%;transform:translateX(-100%)}
+.pc-meter .pce{flex:1;background:#1c2b38;border-radius:2px;height:9px;box-shadow:inset 0 1px 2px rgba(0,0,0,0.5);transition:background 0.05s}
+.pc-meter .pce.on{background:#5cf06a;box-shadow:0 0 4px rgba(92,240,106,0.5)}
+.pc-meter .pce.yellow{background:#ffd600;box-shadow:0 0 4px rgba(255,214,0,0.5)}
+.pc-meter .pce.red{background:#ff3355;box-shadow:0 0 5px rgba(255,51,85,0.6)}
+.pc-meter .pce.peak{background:#ff9f43;box-shadow:0 0 5px rgba(255,159,67,0.9);outline:1px solid #fff;outline-offset:1px}
+/* 可拖动手柄：白色粗竖条，高度 25px 对齐 L/R 两行 LED 边界；
+   margin-top:12px(刻度行9px+间距3px)使顶部贴 L 行顶部、底部贴 R 行底部，不飘 */
+.pc-meter-grip{width:10px;height:25px;align-self:flex-start;margin-top:12px;display:flex;align-items:center;justify-content:center;cursor:ew-resize;color:#fff;font-size:16px;line-height:1;font-weight:bold;user-select:none;border-radius:3px;background:#222;box-shadow:inset 0 0 0 1px #3a4a5e}
+.pc-meter-grip:hover{background:#2c3e50;box-shadow:inset 0 0 0 1px #5a6a7e}
 .progress-bar{flex:1;height:10px;background:#2c3e50;border-radius:5px;cursor:pointer;position:relative;box-shadow:inset 0 1px 3px rgba(0,0,0,0.3)}
 .progress-fill{height:100%;background:#428bca;border-radius:5px;width:0%;transition:width 0.3s;box-shadow:0 1px 0 rgba(255,255,255,0.15) inset}
 .time-display{font-size:14px;color:rgba(255,255,255,0.7);white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,0.3)}
@@ -94,6 +115,14 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
 /* Transition: 弹跳 */
 .trans-bounce .lyrics-line{transition:all 0.5s cubic-bezier(0.68,-0.55,0.265,1.55);transform-origin:center center}
 .trans-bounce .lyrics-line.active{transform:scale(1.12)}
+/* 播放失败弹窗：居中遮罩 + 卡片，5 秒后自动下一首 */
+.pc-err-modal{position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;padding:20px}
+.pc-err-dialog{min-width:300px;max-width:420px;background:#1e2d3a;border:1px solid #2c3e50;border-radius:8px;padding:26px 24px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.5)}
+.pc-err-dialog .err-icon{font-size:38px;color:#d9534f;margin-bottom:8px;line-height:1}
+.pc-err-dialog .err-title{font-size:17px;color:#fff;font-weight:bold;margin-bottom:8px}
+.pc-err-dialog .err-msg{font-size:14px;color:#aebfce;line-height:1.7;margin-bottom:18px}
+.pc-err-dialog button{background:#428bca;color:#fff;border:none;border-radius:6px;padding:10px 28px;font-size:15px;font-weight:bold;cursor:pointer}
+.pc-err-dialog button:hover{background:#5aa5d9}
 </style>
 </head>
 <body>
@@ -114,6 +143,14 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
     <div class="visual-canvas-wrap" id="canvasWrap">
       <canvas id="mainCanvas"></canvas>
     </div>
+  </div>
+  <div class="pc-meter-wrap" id="pcMeterWrap">
+    <div class="pc-meter-col" id="pcMeterCol">
+      <div class="meter-row meter-scale-row"><span class="meter-label"></span><div class="pc-meter-scale"><span style="left:0">-30</span><span style="left:33.333%">-20</span><span style="left:66.667%">-10</span><span class="scale-end">0</span></div></div>
+      <div class="meter-row"><span class="meter-label">L</span><div class="pc-meter" id="pcMeterLedsL" title="左声道峰值电平"></div></div>
+      <div class="meter-row"><span class="meter-label">R</span><div class="pc-meter" id="pcMeterLedsR" title="右声道峰值电平"></div></div>
+    </div>
+    <div class="pc-meter-grip" id="pcMeterGrip" title="拖动加长电平表（仅可加长）">|</div>
   </div>
   <div class="toolbar" id="toolbar" style="display:none">
     <button id="btnLyrics" onclick="userSetView('lyrics')">歌词</button>
@@ -187,6 +224,14 @@ body{width:100vw;height:100vh;overflow:hidden;background:#1a252f;display:flex;fl
   </div>
 </div>
 <div class="tips" id="tipBox"></div>
+<div class="pc-err-modal" id="pcErrModal" style="display:none">
+  <div class="pc-err-dialog">
+    <div class="err-icon">&#9888;</div>
+    <div class="err-title">播放失败</div>
+    <div class="err-msg" id="pcErrMsg">该文件损坏或无法解码，<br>5 秒后自动播放下一首</div>
+    <button onclick="pcErrSkip()">立即播放下一首</button>
+  </div>
+</div>
 <div class="play-info" id="playInfo" style="display:none">
   <div class="current" id="currentSong"></div>
   <div class="next" id="nextSong"></div>
@@ -578,18 +623,134 @@ function initAudioAnalyser() {
   vbAttach(audioCtx, audioSource);
   rebuildChannelRouting('stereo');
   merger.connect(audioCtx.destination);
+  // 电平表采样点：从 merger 分一路 0dB tap（VB 算法输出后、进扬声器前），
+  // 使电平表反映"音量提升(前瞻限幅) 启用后"的实际输出电平。
+  meterTap = audioCtx.createGain();
+  meterTap.gain.value = 1;
+  merger.connect(meterTap);
   // 链路刚建立：应用主控端此前指定的全局音量提升状态
   if (VB.pending !== undefined && VB.pending !== VB.enabled) {
     setVB(VB.pending, true);
   }
   // 默认可视化视图，接入分析分支；非视觉视图/暂停时由setView/事件自动断开
   setAnalyserEnabled(true);
+  // 构建电脑端峰值电平表采集分支（复用 audioSource，纯采集不回写）
+  initPcMeter();
   // 初始化动态范围上限
   defaultTopDb = spectrumSettings.topDb;
   dynamicTopDb = defaultTopDb;
 }
 
 function pauseAnalyserForIdle() { setAnalyserEnabled(false); }
+
+// ---- 电脑端峰值电平表：完全照搬手机端调音台风格（L/R 双通道、dB 刻度、峰值保持、回落节奏）----
+var meterTap = null;          // merger 后的 0dB tap，电平表采样点（VB 输出后、扬声器前）
+var pcMeterL = { db: -90, disp: 0, peak: 0, peakAt: 0, fallAt: 0 };
+var pcMeterR = { db: -90, disp: 0, peak: 0, peakAt: 0, fallAt: 0 };
+var PC_METER_N = 30;
+function buildPcMeter() {
+  var build = function(id) {
+    var m = document.getElementById(id);
+    if (!m || m.childElementCount) return;
+    m.innerHTML = '';
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < PC_METER_N; i++) { var s = document.createElement('div'); s.className = 'pce'; frag.appendChild(s); }
+    m.appendChild(frag);
+  };
+  build('pcMeterLedsL'); build('pcMeterLedsR');
+}
+function initPcMeter() {
+  buildPcMeter();
+  if (!audioCtx || !audioSource) return;
+  if (audioCtx.__meterSp) { try { audioCtx.__meterSp.disconnect(); } catch (e) {} }
+  try {
+    var sp = audioCtx.createScriptProcessor(512, 2, 2);
+    audioCtx.__meterSp = sp;
+    sp.connect(audioCtx.destination);
+    // 采样点取 merger 后的 tap（VB 输出后、扬声器前）；异常时回退到 audioSource
+    (meterTap || audioSource).connect(sp);
+    sp.onaudioprocess = function(e) {
+      var l = e.inputBuffer.getChannelData(0), r = e.inputBuffer.getChannelData(1);
+      var llo=-1,lhi=1,rlo=-1,rhi=1;
+      for (var i=0;i<l.length;i++){ var lv=l[i]; if(lv>llo)llo=lv; if(lv<lhi)lhi=lv; var rv=r[i]; if(rv>rlo)rlo=rv; if(rv<rhi)rhi=rv; }
+      var lpeak=(llo-lhi)/2, rpeak=(rlo-rhi)/2;
+      // clamp 到 ≤1（0dBFS）：VB 增益后样本可能 clip 超界，防止峰值刻度越界/消失
+      if (lpeak > 1) lpeak = 1; if (rpeak > 1) rpeak = 1;
+      pcMeterL.db = lpeak>0 ? 20*Math.log10(lpeak) : -90;
+      pcMeterR.db = rpeak>0 ? 20*Math.log10(rpeak) : -90;
+    };
+  } catch (e) {}
+}
+function dbToNormPc(db) { var n=(db+30)/30; if(n<0)n=0; if(n>1)n=1; return n; }
+function meterSmoothPc(st, now) {
+  var target = dbToNormPc(st.db);
+  if (target >= st.disp) { st.fallAt = now; return target; }
+  if (now - st.fallAt >= 50) {
+    st.fallAt = now;
+    var next = st.disp - 1/PC_METER_N;
+    return next < 0 ? 0 : next;
+  }
+  return st.disp;
+}
+function meterPeakPc(st, disp, now) {
+  if (disp > st.peak || (now - st.peakAt > 500)) { st.peak = disp; st.peakAt = now; }
+  return st.peak;
+}
+function renderPcMeter(id, disp, peak) {
+  var m = document.getElementById(id);
+  if (!m || !m.childElementCount) return;
+  var total = m.children.length;
+  var onCount = Math.round(disp * total);
+  // 峰值格 clamp 到条内最后一格：满刻度(0dB)时显示在最右格，绝不越界/消失
+  var peakIdx = Math.round(peak * total);
+  if (peakIdx >= total) peakIdx = total - 1;
+  for (var i = 0; i < total; i++) {
+    var led = m.children[i];
+    var p = i / total;
+    var cls = 'pce';
+    if (i < onCount) cls = p > 0.85 ? 'pce red' : (p > 0.70 ? 'pce yellow' : 'pce on');
+    if (i === peakIdx) cls += ' peak';
+    if (led.className !== cls) led.className = cls;
+  }
+}
+function pcMeterLoop() {
+  requestAnimationFrame(pcMeterLoop);
+  var now = Date.now();
+  var dL = meterSmoothPc(pcMeterL, now);
+  var dR = meterSmoothPc(pcMeterR, now);
+  pcMeterL.disp = dL; pcMeterR.disp = dR;
+  var pL = meterPeakPc(pcMeterL, dL, now);
+  var pR = meterPeakPc(pcMeterR, dR, now);
+  renderPcMeter('pcMeterLedsL', dL, pL);
+  renderPcMeter('pcMeterLedsR', dR, pR);
+}
+buildPcMeter();
+requestAnimationFrame(pcMeterLoop);
+
+// ---- 电平表长度可拖动：双向拖动，但宽度不能小于 MIN_W（默认 200px）----
+(function(){
+  var grip = document.getElementById('pcMeterGrip');
+  var col = document.getElementById('pcMeterCol');
+  if (!grip || !col) return;
+  var MIN_W = 200;
+  grip.addEventListener('mousedown', function(e){
+    e.preventDefault();
+    var startX = e.clientX;
+    var startW = col.offsetWidth;
+    function move(ev){
+      var dx = ev.clientX - startX;
+      // 双向可拖：向右加长、向左缩短，但不能小于 MIN_W
+      var nw = Math.max(MIN_W, startW + dx);
+      col.style.width = nw + 'px';
+    }
+    function up(){
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    }
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+})();
 function resumeAnalyserForPlay() { setAnalyserEnabled(currentView !== 'lyrics'); }
 
 function userSetView(view) {
@@ -1192,6 +1353,27 @@ function showTip(text) {
   tip.timer = setTimeout(function() { tip.style.display = "none"; }, 10000);
 }
 
+// 播放失败弹窗：显示 5 秒后自动通知主控端切下一首（主控 nextSong 会移除失败项，队列空则停）
+var _pcErrTimer = null;
+function pcErrClose() {
+  var m = document.getElementById('pcErrModal');
+  if (m) m.style.display = 'none';
+  clearTimeout(_pcErrTimer);
+}
+function pcErrSkip() {
+  pcErrClose();
+  if(window.opener&&!window.opener.closed) window.opener.postMessage({action:"ended"},"*");
+  else if(window.parent&&window.parent!==window) window.parent.postMessage({action:"ended"},"*");
+}
+function pcErrShow(msg) {
+  var m = document.getElementById('pcErrModal');
+  if (!m) return;
+  if (msg) document.getElementById('pcErrMsg').innerHTML = msg;
+  m.style.display = 'flex';
+  clearTimeout(_pcErrTimer);
+  _pcErrTimer = setTimeout(pcErrSkip, 5000);
+}
+
 function parseLRC(lrcText) {
   var lines = lrcText.split('\n');
   var result = [];
@@ -1514,7 +1696,12 @@ function playAudio(url, name, path) {
     updateLyrics();
   };
   audio.onended = function() { stopAnim(); showIdleTip(); if(window.opener&&!window.opener.closed) window.opener.postMessage({action:"ended"},"*"); else if(window.parent&&window.parent!==window) window.parent.postMessage({action:"ended"},"*"); };
-  audio.onerror = function() { stopAnim(); };
+  audio.onerror = function() {
+    stopAnim();
+    if (audio.__errSkipped) return;
+    audio.__errSkipped = true;
+    pcErrShow();
+  };
 
   showTip("正在播放：" + name);
   loadLyrics(name);

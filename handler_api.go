@@ -315,6 +315,9 @@ type SingerIndexItem struct {
 }
 
 // SingerIndexHandler 返回歌手首字母索引
+//  不带 letter：返回轻量字母概要 {"letters":[...]}，供前端渲染字母条；
+//  带 letter=X&page=&pageSize=：返回该字母下歌手分页 {items,total,...}。
+// 歌手数量庞大，分页可显著节省流量并降低浏览器渲染压力。
 func SingerIndexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	list := getCachedMediaList()
@@ -327,48 +330,130 @@ func SingerIndexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 按首字母分组
-	letterMap := make(map[string][]SingerIndexItem)
+	letter := r.URL.Query().Get("letter")
+	if letter == "" {
+		// 仅返回存在的字母
+		letterSet := make(map[string]bool)
+		for singer := range singerCount {
+			letterSet[singerFirstChar(singer)] = true
+		}
+		letters := make([]string, 0, len(letterSet))
+		for l := range letterSet {
+			letters = append(letters, l)
+		}
+		sort.Strings(letters)
+		json.NewEncoder(w).Encode(map[string]interface{}{"letters": letters})
+		return
+	}
+
+	var items []SingerIndexItem
 	for singer, count := range singerCount {
-		letter := singerFirstChar(singer)
-		letterMap[letter] = append(letterMap[letter], SingerIndexItem{
-			Letter: letter,
-			Name:   singer,
-			Count:  count,
-		})
+		if singerFirstChar(singer) == letter {
+			items = append(items, SingerIndexItem{
+				Letter: letter,
+				Name:   singer,
+				Count:  count,
+			})
+		}
 	}
 
-	// 每个字母内按歌曲数量降序排列（数量相同则按歌手名排序）
-	for letter := range letterMap {
-		sort.Slice(letterMap[letter], func(i, j int) bool {
-			if letterMap[letter][i].Count != letterMap[letter][j].Count {
-				return letterMap[letter][i].Count > letterMap[letter][j].Count
-			}
-			return letterMap[letter][i].Name < letterMap[letter][j].Name
-		})
-	}
+	// 该字母内按歌曲数量降序排列（数量相同则按歌手名排序）
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Count != items[j].Count {
+			return items[i].Count > items[j].Count
+		}
+		return items[i].Name < items[j].Name
+	})
 
-	// 构建有序结果
-	letters := make([]string, 0, len(letterMap))
-	for l := range letterMap {
-		letters = append(letters, l)
-	}
-	sort.Strings(letters)
+	writePagedItems(w, r, items)
+}
 
-	result := make(map[string][]SingerIndexItem)
-	for _, l := range letters {
-		result[l] = letterMap[l]
+// parsePageParams 解析统一样式的分页参数并夹取合理范围
+func parsePageParams(r *http.Request) (page, pageSize int) {
+	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
 	}
+	pageSize, _ = strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+	return
+}
 
+// writePagedItems 将任意 []T 切片按 page/pageSize 分页输出为统一分页结构
+// {items, total, page, pageSize, totalPages}，供歌手/语种/曲种等索引接口复用。
+func writePagedItems[T any](w http.ResponseWriter, r *http.Request, items []T) {
+	page, pageSize := parsePageParams(r)
+	total := len(items)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	result := struct {
+		Items      []T `json:"items"`
+		Total      int `json:"total"`
+		Page       int `json:"page"`
+		PageSize   int `json:"pageSize"`
+		TotalPages int `json:"totalPages"`
+	}{
+		Items:      items[start:end],
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+	}
 	json.NewEncoder(w).Encode(result)
 }
 
-// SongsBySingerHandler 返回指定歌手的歌曲列表
+// buildPagedSongsResponse 将分类过滤后的全量歌曲列表按 page/pageSize 分页输出，
+// 响应结构与 SongListHandler 保持一致（songs/total/page/pageSize/totalPages），
+// 并对返回条目统一标记待审核（uploads 来源）。
+func buildPagedSongsResponse(w http.ResponseWriter, r *http.Request, songs []MediaFile) {
+	page, pageSize := parsePageParams(r)
+	total := len(songs)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	for i := range songs {
+		markUploadReview(&songs[i])
+	}
+
+	result := struct {
+		Songs      []MediaFile `json:"songs"`
+		Total      int         `json:"total"`
+		Page       int         `json:"page"`
+		PageSize   int         `json:"pageSize"`
+		TotalPages int         `json:"totalPages"`
+	}{
+		Songs:      songs[start:end],
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: (total + pageSize - 1) / pageSize,
+	}
+	json.NewEncoder(w).Encode(result)
+}
+
+// SongsBySingerHandler 返回指定歌手的歌曲列表（分页）
 func SongsBySingerHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	singer := r.URL.Query().Get("singer")
 	if singer == "" {
-		json.NewEncoder(w).Encode([]MediaFile{})
+		buildPagedSongsResponse(w, r, []MediaFile{})
 		return
 	}
 
@@ -380,10 +465,7 @@ func SongsBySingerHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if songs == nil {
-		songs = []MediaFile{}
-	}
-	json.NewEncoder(w).Encode(songs)
+	buildPagedSongsResponse(w, r, songs)
 }
 
 // CategoryItem 分类条目
@@ -392,7 +474,7 @@ type CategoryItem struct {
 	Count int    `json:"count"`
 }
 
-// LanguageIndexHandler 返回语种分类列表
+// LanguageIndexHandler 返回语种分类列表（分页）
 func LanguageIndexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	list := getCachedMediaList()
@@ -414,13 +496,10 @@ func LanguageIndexHandler(w http.ResponseWriter, r *http.Request) {
 		return result[i].Count > result[j].Count
 	})
 
-	if result == nil {
-		result = []CategoryItem{}
-	}
-	json.NewEncoder(w).Encode(result)
+	writePagedItems(w, r, result)
 }
 
-// CategoryIndexHandler 返回曲种分类列表
+// CategoryIndexHandler 返回曲种分类列表（分页）
 func CategoryIndexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	list := getCachedMediaList()
@@ -442,18 +521,15 @@ func CategoryIndexHandler(w http.ResponseWriter, r *http.Request) {
 		return result[i].Count > result[j].Count
 	})
 
-	if result == nil {
-		result = []CategoryItem{}
-	}
-	json.NewEncoder(w).Encode(result)
+	writePagedItems(w, r, result)
 }
 
-// SongsByLanguageHandler 返回指定语种的歌曲列表
+// SongsByLanguageHandler 返回指定语种的歌曲列表（分页）
 func SongsByLanguageHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	lang := r.URL.Query().Get("language")
 	if lang == "" {
-		json.NewEncoder(w).Encode([]MediaFile{})
+		buildPagedSongsResponse(w, r, []MediaFile{})
 		return
 	}
 
@@ -469,18 +545,15 @@ func SongsByLanguageHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if songs == nil {
-		songs = []MediaFile{}
-	}
-	json.NewEncoder(w).Encode(songs)
+	buildPagedSongsResponse(w, r, songs)
 }
 
-// SongsByCategoryHandler 返回指定曲种的歌曲列表
+// SongsByCategoryHandler 返回指定曲种的歌曲列表（分页）
 func SongsByCategoryHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	cat := r.URL.Query().Get("category")
 	if cat == "" {
-		json.NewEncoder(w).Encode([]MediaFile{})
+		buildPagedSongsResponse(w, r, []MediaFile{})
 		return
 	}
 
@@ -496,8 +569,5 @@ func SongsByCategoryHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if songs == nil {
-		songs = []MediaFile{}
-	}
-	json.NewEncoder(w).Encode(songs)
+	buildPagedSongsResponse(w, r, songs)
 }

@@ -62,6 +62,14 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
 .idle-sub{margin-top:6px;font-size:18px;color:#c9d4de}
 .idle-git{margin-top:20px;font-size:14px;color:#9aa9b8;border-top:1px solid rgba(255,255,255,0.12);padding-top:14px;pointer-events:auto}
 .idle-git a{color:#f0ad4e;text-decoration:underline;word-break:break-all}
+/* 播放失败弹窗：居中遮罩 + 卡片，5 秒后自动下一首 */
+.pc-err-modal{position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;padding:20px}
+.pc-err-dialog{min-width:300px;max-width:420px;background:#1e2d3a;border:1px solid #2c3e50;border-radius:8px;padding:26px 24px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.5)}
+.pc-err-dialog .err-icon{font-size:38px;color:#d9534f;margin-bottom:8px;line-height:1}
+.pc-err-dialog .err-title{font-size:17px;color:#fff;font-weight:bold;margin-bottom:8px}
+.pc-err-dialog .err-msg{font-size:14px;color:#aebfce;line-height:1.7;margin-bottom:18px}
+.pc-err-dialog button{background:#428bca;color:#fff;border:none;border-radius:6px;padding:10px 28px;font-size:15px;font-weight:bold;cursor:pointer}
+.pc-err-dialog button:hover{background:#5aa5d9}
 @media screen and (min-aspect-ratio: 16/10) {
   #idleTip{left:0}
 }
@@ -88,6 +96,14 @@ video{width:100vw;height:100vh;object-fit:contain;z-index:1}
   </div>
 </div>
 <div class="tips" id="tipBox"></div>
+<div class="pc-err-modal" id="pcErrModal" style="display:none">
+  <div class="pc-err-dialog">
+    <div class="err-icon">&#9888;</div>
+    <div class="err-title">播放失败</div>
+    <div class="err-msg" id="pcErrMsg">该文件损坏或无法解码，<br>5 秒后自动播放下一首</div>
+    <button onclick="pcErrSkip()">立即播放下一首</button>
+  </div>
+</div>
 <div id="lyricPickerMask" style="display:none;position:fixed;inset:0;z-index:2147483005;background:rgba(0,0,0,0.6)">
   <div style="position:absolute;top:8vh;left:15vw;width:70vw;max-height:80vh;background:#1e2d3a;border:1px solid #2c3e50;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #2c3e50;color:#fff">
@@ -162,6 +178,27 @@ function showTip(text) {
   tip.style.display = "block";
   clearTimeout(tip.timer);
   tip.timer = setTimeout(function() { tip.style.display = "none"; }, 10000);
+}
+
+// 播放失败弹窗：显示 5 秒后自动通知主控端切下一首（主控 nextSong 会移除失败项，队列空则停）
+var _pcErrTimer = null;
+function pcErrClose() {
+  var m = document.getElementById('pcErrModal');
+  if (m) m.style.display = 'none';
+  clearTimeout(_pcErrTimer);
+}
+function pcErrSkip() {
+  pcErrClose();
+  if(window.opener && !window.opener.closed) window.opener.postMessage({action:"ended"},"*");
+  else if(window.parent && window.parent !== window) window.parent.postMessage({action:"ended"},"*");
+}
+function pcErrShow(msg) {
+  var m = document.getElementById('pcErrModal');
+  if (!m) return;
+  if (msg) document.getElementById('pcErrMsg').innerHTML = msg;
+  m.style.display = 'flex';
+  clearTimeout(_pcErrTimer);
+  _pcErrTimer = setTimeout(pcErrSkip, 5000);
 }
 
 function parseLRC(lrcText) {
@@ -1038,7 +1075,9 @@ function playVideo(url, name, type, path) {
       } catch(e) { /* 探测失败则用原错误信息 */ }
     }
     if (errorMsg) {
-      alert(errorMsg);
+      pcErrShow(errorMsg + '<br>5 秒后自动播放下一首');
+    } else {
+      pcErrShow();
     }
   };
 

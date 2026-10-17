@@ -7,11 +7,14 @@ ffprobe.exe
 ffmpeg.rar
 ffprobe.rar
 
-# 配置和缓存（用户本地生成）
+# 曲库缓存（用户本地生成）
 ktv_config.json
 ktv_media_cache.json
 ktv_hotplay.json
 0结果搜索词.txt
+
+# 下载产物缓存（运行时生成）
+download_cache/
 
 # 用户上传目录（运行时生成）
 uploads/
@@ -61,4 +64,38 @@ dist/
 
 # Trae 记忆
 .trae-cn/
+
+# WorkBuddy 本地记忆
+.workbuddy/
+
+# 调试/临时文件（下划线开头的开发产物）
+_*.png
+_*.ps1
+_*.txt
+_*.html
+_pid.txt
+_in.txt
+_err.txt
+_out.txt
+compare_versions.ps1
+fix_filename*.ps1
+fix_final*.ps1
+ktv*.exe~
+ktv_test.exe~
+ktv.exe_tmp_ignore
+ktv_review.json
+
+# 发布脚本（内嵌 GitHub token，严禁入库）
+push_*.ps1
+push_to_github.ps1
+upload_assets*.ps1
+release_body.md
+release_v*.md
+
+# 本地运行数据
+控制台输出.txt
+缺少歌曲.txt
+
+# 旧编译产物目录
+dist-fix/
 

@@ -257,7 +257,9 @@ func UploadAPIHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.ParseMultipartForm(500 << 20) // 500MB max
+	// 阈值 32KB：超过即把文件落临时盘而非驻留内存（旧值 500MB 会把几百MB文件整体缓冲进 RAM，
+	// 叠加曲库缓存后 32 位进程易 OOM 崩溃）。FormFile 返回的 reader 直接从临时盘流式读，内存恒定。
+	r.ParseMultipartForm(32 << 10)
 
 	file, handler, err := r.FormFile("file")
 	if err != nil {
@@ -317,6 +319,7 @@ func UploadAPIHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer dst.Close()
 
+	// io.Copy 以 32KB 块边读边写（读取临时盘文件），内存占用恒定，不受文件大小影响
 	written, err := io.Copy(dst, file)
 	if err != nil {
 		fmt.Printf("[上传] 写入文件失败: %v\n", err)

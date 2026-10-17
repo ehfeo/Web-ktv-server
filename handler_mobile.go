@@ -143,6 +143,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#1a252f;color:#ecf0f
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="lc-modal" id="errModal" style="display:none">
+    <div class="lc-dialog" style="padding:26px 24px;align-items:center;text-align:center;overflow:visible">
+        <div style="font-size:38px;color:#d9534f;margin-bottom:8px;line-height:1">&#9888;</div>
+        <div style="font-size:17px;color:#fff;font-weight:bold;margin-bottom:8px">播放失败</div>
+        <div style="font-size:14px;color:#aebfce;line-height:1.7;margin-bottom:18px">该曲目文件损坏或无法解码，<br>5 秒后自动播放下一首</div>
+        <button onclick="errSkipNow()" style="background:#428bca;color:#fff;border:none;border-radius:6px;padding:10px 28px;font-size:15px;font-weight:bold;cursor:pointer">立即播放下一首</button>
+    </div>
+</div>
 <div class="lc-modal" id="lcModal" style="display:none">
     <div class="lc-dialog">
         <div class="lc-head">选择歌词<button onclick="closeMobileLyricPicker()">关闭</button></div>
@@ -281,10 +289,19 @@ function switchTab(tab) {
     if (tab === 'hot') loadHotSongs();
 }
 
+// ===== 歌手索引分页 =====
+// /api/singers 现在按字母+分页返回：不带 letter 只回 {"letters":[...]} 轻量字母条，
+// 带 letter&page 返回该字母下的歌手分页，避免全量歌手一次性拉取+渲染导致手机卡顿。
+var mSingerLetter = '';
+var mSingerPage = 1;
+var mSingerTotal = 0;
+var mSingerTotalPages = 1;
+
 function loadMobileSingerIndex() {
+    mobileSingerData = { letters: [] };
     fetch('/api/singers').then(function(r){return r.json();}).then(function(data){
         mobileSingerData = data;
-        var letters = Object.keys(data).sort();
+        var letters = (data.letters || []).sort();
         var html = '';
         for (var i = 0; i < letters.length; i++) {
             html += '<span onclick="selectMobileLetter(\'' + letters[i] + '\')" id="mletter_' + letters[i] + '">' + letters[i] + '</span>';
@@ -296,65 +313,291 @@ function loadMobileSingerIndex() {
 
 function selectMobileLetter(letter) {
     mobileSingerLetter = letter;
+    mSingerLetter = letter;
+    mSingerPage = 1;
     var spans = document.getElementById('singerLetters').children;
     for (var i = 0; i < spans.length; i++) {
         spans[i].className = spans[i].id === 'mletter_' + letter ? 'active' : '';
     }
-    var singers = mobileSingerData[letter] || [];
-    var html = '<div class="singer-grid">';
-    for (var i = 0; i < singers.length; i++) {
-        html += '<div class="singer-btn" onclick="loadMobileSingerSongs(\'' + singers[i].name.replace(/'/g, "\\'") + '\')">';
-        html += '<span class="sname">' + singers[i].name + '</span>';
-        html += '<span class="scount">' + singers[i].count + '首</span>';
+    // 切换字母后让歌手名单回到最顶部
+    window.scrollTo(0, 0);
+    loadMobileSingers(letter, 1);
+}
+
+function loadMobileSingers(letter, page) {
+    mSingerLetter = letter;
+    mSingerPage = page;
+    var listEl = document.getElementById('singerList');
+    listEl.innerHTML = '<div style="text-align:center;color:#555;padding:20px">加载中...</div>';
+    var xhr = new XMLHttpRequest();
+    var url = '/api/singers?letter=' + encodeURIComponent(letter) + '&page=' + page + '&pageSize=' + pageSize;
+    xhr.open('GET', url, true);
+    xhr.onload = function() {
+        if (xhr.status !== 200) { listEl.innerHTML = '<div style="text-align:center;color:#555;padding:20px">加载失败</div>'; return; }
+        var data = JSON.parse(xhr.responseText);
+        mSingerTotal = data.total;
+        mSingerTotalPages = data.totalPages;
+        var singers = data.items || [];
+        var html = '<div class="singer-grid">';
+        for (var i = 0; i < singers.length; i++) {
+            html += '<div class="singer-btn" onclick="loadMobileSingerSongs(\'' + singers[i].name.replace(/'/g, "\\'") + '\')">';
+            html += '<span class="sname">' + singers[i].name + '</span>';
+            html += '<span class="scount">' + singers[i].count + '首</span>';
+            html += '</div>';
+        }
         html += '</div>';
+        if (singers.length === 0) html = '<div style="text-align:center;color:#555;padding:20px">暂无歌手</div>';
+        else html += buildSingerPagination();
+        listEl.innerHTML = html;
+    };
+    xhr.send();
+}
+
+function sChangePage(page) {
+    if (page < 1 || page > mSingerTotalPages) return;
+    loadMobileSingers(mSingerLetter, page);
+}
+
+function buildSingerPagination() {
+    if (mSingerTotalPages <= 1) return '';
+    var html = '<div style="display:flex;justify-content:center;padding:12px 0">';
+    html += '<button class="page-btn" onclick="sChangePage(' + (mSingerPage - 1) + ')" ' + (mSingerPage === 1 ? 'disabled' : '') + '>上一页</button>';
+    var maxBtns = 5;
+    if (mSingerTotalPages <= maxBtns) {
+        for (var i = 1; i <= mSingerTotalPages; i++) {
+            html += '<button class="page-btn' + (i === mSingerPage ? ' active' : '') + '" onclick="sChangePage(' + i + ')">' + i + '</button>';
+        }
+    } else {
+        var step = Math.ceil(mSingerTotalPages / maxBtns);
+        for (var i = 0; i < maxBtns; i++) {
+            var p = (i + 1) * step;
+            if (p > mSingerTotalPages) p = mSingerTotalPages;
+            html += '<button class="page-btn' + (p === mSingerPage ? ' active' : '') + '" onclick="sChangePage(' + p + ')">' + p + '</button>';
+        }
     }
+    html += '<button class="page-btn" onclick="sChangePage(' + (mSingerPage + 1) + ')" ' + (mSingerPage === mSingerTotalPages ? 'disabled' : '') + '>下一页</button>';
     html += '</div>';
-    document.getElementById('singerList').innerHTML = html || '<div style="text-align:center;color:#555;padding:20px">暂无歌手</div>';
+    return html;
+}
+
+// ===== 分类歌单分页（按歌手/语种/曲种）=====
+// 分类下歌曲可能成千上万，一次全量渲染会让手机浏览器卡住；
+// 改为与搜索一致的分页加载，既省流量又降低浏览器压力。
+var mSongType = '';        // 'singer' | 'language' | 'category'
+var mSongKey = '';         // 当前选中的分类键（歌手名/语种/曲种）
+var mSongPage = 1;
+var mSongTotal = 0;
+var mSongTotalPages = 1;
+
+// 分类歌单的“返回”头部，随分类类型不同而回退到对应索引列表
+function mSongBackHtml() {
+    if (mSongType === 'singer') {
+        return '<div class="singer-back" onclick="selectMobileLetter(\'' + mobileSingerLetter + '\')">&#8592; 返回歌手列表</div>';
+    }
+    if (mSongType === 'language') {
+        return '<div class="singer-back" onclick="renderMobileLanguageList(mobileLanguageData)">&#8592; 返回语种列表</div>';
+    }
+    return '<div class="singer-back" onclick="renderMobileCategoryList(mobileCategoryData)">&#8592; 返回曲种列表</div>';
+}
+
+// 分类歌单目标容器，随类型不同选对应的面板
+function mSongTarget() {
+    if (mSongType === 'singer') return document.getElementById('singerList');
+    if (mSongType === 'language') return document.getElementById('languageList');
+    return document.getElementById('categoryList');
+}
+
+// 统一的分页加载入口：type 为 singer/language/category，key 为具体分类值
+function loadMobileSongs(type, key, page) {
+    mSongType = type;
+    mSongKey = key;
+    mSongPage = page;
+    var target = mSongTarget();
+    target.innerHTML = mSongBackHtml() + '<div class="empty-hint">加载中...</div>';
+
+    var path = '/api/songs-by-singer?singer=';
+    if (type === 'language') path = '/api/songs-by-language?language=';
+    else if (type === 'category') path = '/api/songs-by-category?category=';
+
+    var url = path + encodeURIComponent(key) + '&page=' + page + '&pageSize=' + pageSize;
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onload = function() {
+        if (xhr.status !== 200) {
+            target.innerHTML = mSongBackHtml() + '<div class="empty-hint">加载失败</div>';
+            return;
+        }
+        var data = JSON.parse(xhr.responseText);
+        mSongTotal = data.total;
+        mSongTotalPages = data.totalPages;
+        var songs = data.songs;
+        var html = mSongBackHtml();
+        html += '<div style="padding:8px;color:#0af;font-size:15px;text-align:center">' + key + ' (' + mSongTotal + '首)</div>';
+        if (!songs || songs.length === 0) {
+            html += '<div class="empty-hint">暂无歌曲</div>';
+        } else {
+            for (var i = 0; i < songs.length; i++) {
+                var s = songs[i];
+                var showName = s.displayName || s.name;
+                html += '<div class="song-item" data-path="' + s.path + '" onclick="addToQueue(\'' + s.path.replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">' + showName + '</div>';
+            }
+            html += buildMobilePagination();
+        }
+        target.innerHTML = html;
+        if (songs && songs.length > 0) showMobilePlayCounts(songs);
+    };
+    xhr.send();
+}
+
+function mChangePage(page) {
+    if (page < 1 || page > mSongTotalPages) return;
+    loadMobileSongs(mSongType, mSongKey, page);
+}
+
+function buildMobilePagination() {
+    if (mSongTotalPages <= 1) return '';
+    var html = '<div style="display:flex;justify-content:center;padding:12px 0">';
+    html += '<button class="page-btn" onclick="mChangePage(' + (mSongPage - 1) + ')" ' + (mSongPage === 1 ? 'disabled' : '') + '>上一页</button>';
+    var maxBtns = 5;
+    if (mSongTotalPages <= maxBtns) {
+        for (var i = 1; i <= mSongTotalPages; i++) {
+            html += '<button class="page-btn' + (i === mSongPage ? ' active' : '') + '" onclick="mChangePage(' + i + ')">' + i + '</button>';
+        }
+    } else {
+        var step = Math.ceil(mSongTotalPages / maxBtns);
+        for (var i = 0; i < maxBtns; i++) {
+            var p = (i + 1) * step;
+            if (p > mSongTotalPages) p = mSongTotalPages;
+            html += '<button class="page-btn' + (p === mSongPage ? ' active' : '') + '" onclick="mChangePage(' + p + ')">' + p + '</button>';
+        }
+    }
+    html += '<button class="page-btn" onclick="mChangePage(' + (mSongPage + 1) + ')" ' + (mSongPage === mSongTotalPages ? 'disabled' : '') + '>下一页</button>';
+    html += '</div>';
+    return html;
 }
 
 function loadMobileSingerSongs(singer) {
-    fetch('/api/songs-by-singer?singer=' + encodeURIComponent(singer)).then(function(r){return r.json();}).then(function(songs){
-        var html = '<div class="singer-back" onclick="selectMobileLetter(\'' + mobileSingerLetter + '\')">&#8592; 返回歌手列表</div>';
-        html += '<div style="padding:8px;color:#0af;font-size:15px;text-align:center">' + singer + ' (' + songs.length + '首)</div>';
-        for (var i = 0; i < songs.length; i++) {
-            var s = songs[i];
-            var showName = s.displayName || s.name;
-            html += '<div class="song-item" onclick="addToQueue(\'' + s.path.replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">' + showName + '</div>';
-        }
-        document.getElementById('singerList').innerHTML = html;
-    });
+    loadMobileSongs('singer', singer, 1);
 }
 
+// ===== 语种/曲种索引分页 =====
+// /api/languages、/api/categories 已分页返回 {items,total,...}，前端同样分页渲染，
+// 避免零碎残障的语种/曲种条目过多导致卡顿。
+var mLangPage = 1;
+var mLangTotalPages = 1;
+var mCatPage = 1;
+var mCatTotalPages = 1;
+
 function loadMobileLanguageIndex() {
-    fetch('/api/languages').then(function(r){return r.json();}).then(function(data){
+    mLangPage = 1;
+    loadMobileLanguages(1);
+}
+
+function loadMobileLanguages(page) {
+    mLangPage = page;
+    var el = document.getElementById('languageList');
+    el.innerHTML = '<div class="empty-hint">加载中...</div>';
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/languages?page=' + page + '&pageSize=' + pageSize, true);
+    xhr.onload = function() {
+        if (xhr.status !== 200) { el.innerHTML = '<div class="empty-hint">加载失败</div>'; return; }
+        var data = JSON.parse(xhr.responseText);
         mobileLanguageData = data;
+        mLangTotalPages = data.totalPages;
         renderMobileLanguageList(data);
-    });
+    };
+    xhr.send();
 }
 
 function renderMobileLanguageList(data) {
+    var items = data && data.items ? data.items : (data || []);
     var html = '<div class="cat-grid">';
-    for (var i = 0; i < data.length; i++) {
-        html += '<div class="cat-btn" onclick="loadMobileLanguageSongs(\'' + data[i].name.replace(/'/g, "\\'") + '\')">';
-        html += '<span class="cname">' + data[i].name + '</span>';
-        html += '<span class="ccount">' + data[i].count + '首</span>';
+    for (var i = 0; i < items.length; i++) {
+        html += '<div class="cat-btn" onclick="loadMobileLanguageSongs(\'' + items[i].name.replace(/'/g, "\\'") + '\')">';
+        html += '<span class="cname">' + items[i].name + '</span>';
+        html += '<span class="ccount">' + items[i].count + '首</span>';
         html += '</div>';
     }
     html += '</div>';
+    if (items.length === 0) html = '<div class="empty-hint">暂无语种</div>';
+    else html += '<div style="display:flex;justify-content:center;padding:12px 0">' + buildCatPagination('lang') + '</div>';
     document.getElementById('languageList').innerHTML = html;
 }
 
 function loadMobileLanguageSongs(lang) {
-    fetch('/api/songs-by-language?language=' + encodeURIComponent(lang)).then(function(r){return r.json();}).then(function(songs){
-        var html = '<div class="singer-back" onclick="renderMobileLanguageList(mobileLanguageData)">&#8592; 返回语种列表</div>';
-        html += '<div style="padding:8px;color:#0af;font-size:15px;text-align:center">' + lang + ' (' + songs.length + '首)</div>';
-        for (var i = 0; i < songs.length; i++) {
-            var s = songs[i];
-            var showName = s.displayName || s.name;
-            html += '<div class="song-item" onclick="addToQueue(\'' + s.path.replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">' + showName + '</div>';
+    loadMobileSongs('language', lang, 1);
+}
+
+function loadMobileCategoryIndex() {
+    mCatPage = 1;
+    loadMobileCategories(1);
+}
+
+function loadMobileCategories(page) {
+    mCatPage = page;
+    var el = document.getElementById('categoryList');
+    el.innerHTML = '<div class="empty-hint">加载中...</div>';
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/categories?page=' + page + '&pageSize=' + pageSize, true);
+    xhr.onload = function() {
+        if (xhr.status !== 200) { el.innerHTML = '<div class="empty-hint">加载失败</div>'; return; }
+        var data = JSON.parse(xhr.responseText);
+        mobileCategoryData = data;
+        mCatTotalPages = data.totalPages;
+        renderMobileCategoryList(data);
+    };
+    xhr.send();
+}
+
+function renderMobileCategoryList(data) {
+    var items = data && data.items ? data.items : (data || []);
+    var html = '<div class="cat-grid">';
+    for (var i = 0; i < items.length; i++) {
+        html += '<div class="cat-btn" onclick="loadMobileCategorySongs(\'' + items[i].name.replace(/'/g, "\\'") + '\')">';
+        html += '<span class="cname">' + items[i].name + '</span>';
+        html += '<span class="ccount">' + items[i].count + '首</span>';
+        html += '</div>';
+    }
+    html += '</div>';
+    if (items.length === 0) html = '<div class="empty-hint">暂无曲种</div>';
+    else html += '<div style="display:flex;justify-content:center;padding:12px 0">' + buildCatPagination('cat') + '</div>';
+    document.getElementById('categoryList').innerHTML = html;
+}
+
+function catChangePage(kind, page) {
+    if (kind === 'lang') {
+        if (page < 1 || page > mLangTotalPages) return;
+        loadMobileLanguages(page);
+    } else {
+        if (page < 1 || page > mCatTotalPages) return;
+        loadMobileCategories(page);
+    }
+}
+
+function buildCatPagination(kind) {
+    var cur = kind === 'lang' ? mLangPage : mCatPage;
+    var total = kind === 'lang' ? mLangTotalPages : mCatTotalPages;
+    if (total <= 1) return '';
+    var html = '<button class="page-btn" onclick="catChangePage(\'' + kind + '\',' + (cur - 1) + ')" ' + (cur === 1 ? 'disabled' : '') + '>上一页</button>';
+    var maxBtns = 5;
+    if (total <= maxBtns) {
+        for (var i = 1; i <= total; i++) {
+            html += '<button class="page-btn' + (i === cur ? ' active' : '') + '" onclick="catChangePage(\'' + kind + '\',' + i + ')">' + i + '</button>';
         }
-        document.getElementById('languageList').innerHTML = html;
-    });
+    } else {
+        var step = Math.ceil(total / maxBtns);
+        for (var i = 0; i < maxBtns; i++) {
+            var p = (i + 1) * step;
+            if (p > total) p = total;
+            html += '<button class="page-btn' + (p === cur ? ' active' : '') + '" onclick="catChangePage(\'' + kind + '\',' + p + ')">' + p + '</button>';
+        }
+    }
+    html += '<button class="page-btn" onclick="catChangePage(\'' + kind + '\',' + (cur + 1) + ')" ' + (cur === total ? 'disabled' : '') + '>下一页</button>';
+    return html;
+}
+
+function loadMobileCategorySongs(cat) {
+    loadMobileSongs('category', cat, 1);
 }
 
 function loadHotSongs() {
@@ -381,38 +624,6 @@ function loadHotSongs() {
         hotList.innerHTML = html;
     }).catch(function(){
         hotList.innerHTML = '<div class="empty-hint">加载失败</div>';
-    });
-}
-
-function loadMobileCategoryIndex() {
-    fetch('/api/categories').then(function(r){return r.json();}).then(function(data){
-        mobileCategoryData = data;
-        renderMobileCategoryList(data);
-    });
-}
-
-function renderMobileCategoryList(data) {
-    var html = '<div class="cat-grid">';
-    for (var i = 0; i < data.length; i++) {
-        html += '<div class="cat-btn" onclick="loadMobileCategorySongs(\'' + data[i].name.replace(/'/g, "\\'") + '\')">';
-        html += '<span class="cname">' + data[i].name + '</span>';
-        html += '<span class="ccount">' + data[i].count + '首</span>';
-        html += '</div>';
-    }
-    html += '</div>';
-    document.getElementById('categoryList').innerHTML = html;
-}
-
-function loadMobileCategorySongs(cat) {
-    fetch('/api/songs-by-category?category=' + encodeURIComponent(cat)).then(function(r){return r.json();}).then(function(songs){
-        var html = '<div class="singer-back" onclick="renderMobileCategoryList(mobileCategoryData)">&#8592; 返回曲种列表</div>';
-        html += '<div style="padding:8px;color:#0af;font-size:15px;text-align:center">' + cat + ' (' + songs.length + '首)</div>';
-        for (var i = 0; i < songs.length; i++) {
-            var s = songs[i];
-            var showName = s.displayName || s.name;
-            html += '<div class="song-item" onclick="addToQueue(\'' + s.path.replace(/'/g, "\\'") + '\',\'' + s.name.replace(/'/g, "\\'") + '\',\'' + s.type + '\',\'' + (showName !== s.name ? showName.replace(/'/g, "\\'") : '') + '\')">' + showName + '</div>';
-        }
-        document.getElementById('categoryList').innerHTML = html;
     });
 }
 
@@ -446,6 +657,28 @@ function probeMobileMediaError(target) {
     }
   }
 }
+// 播放失败自动跳过：弹窗提示，5 秒后自动播队列下一首（nextSong 会移除当前失败项，队列空则停，不会死循环）
+var _errModalTimer = null;
+function closeErrModal() {
+  var m = document.getElementById('errModal');
+  if (m) m.style.display = 'none';
+  clearTimeout(_errModalTimer);
+}
+function errSkipNow() { closeErrModal(); nextSong(); }
+function handleMobilePlayError(el) {
+  if (el.__skipHandled) return;
+  el.__skipHandled = true;
+  try { el.removeAttribute('src'); } catch (e) {}
+  var m = document.getElementById('errModal');
+  if (!m) {
+    showToast('该曲目播放失败，已自动播放下一首', 'error');
+    setTimeout(function(){ nextSong(); }, 300);
+    return;
+  }
+  m.style.display = 'flex';
+  clearTimeout(_errModalTimer);
+  _errModalTimer = setTimeout(function(){ closeErrModal(); nextSong(); }, 5000);
+}
 if (!window._mobileMediaErrorProbeInstalled) {
   window._mobileMediaErrorProbeInstalled = true;
   // 用捕获阶段监听，覆盖 videoEl 以及每次重建的 <audio> 元素
@@ -453,6 +686,7 @@ if (!window._mobileMediaErrorProbeInstalled) {
     var t = e.target;
     if (!t || (t.tagName !== 'VIDEO' && t.tagName !== 'AUDIO')) return;
     probeMobileMediaError(t);
+    handleMobilePlayError(t);
   }, true);
 }
 
@@ -464,6 +698,9 @@ function freshMobileAudioEl() {
   if (!wrap) return audioEl;
   var old = document.getElementById('audioPlayer');
   if (old) {
+    // 断开并丢弃旧的 WebAudio 源节点(旧元素已移除但 source 仍挂在 AudioContext 图上，
+    // 不断开会随播放曲目累积导致主线程越来越卡、电平表滞后)
+    if (old.__meshSrc) { try { old.__meshSrc.disconnect(); } catch (e) {} old.__meshSrc = null; }
     old.removeAttribute('src');
     try { old.load(); } catch (e) {}
     old.remove();
@@ -1392,10 +1629,9 @@ var mobileLyricTimer = null;
 // 我们的点播由异步转码回调触发(脱离手势)，故把整条链的建立绑定到页面首次触摸事件上。
 var mobileAudioCtx = null;
 var mobileMediaSource = null;
-var meterAnalyser = null;
 var meterScript = null;         // ScriptProcessor 采集裸采样(fftplayer 方案，手机可靠)
+var meterAnalyser = null;       // 时域直通输出节点：保证 createMediaElementSource 后有声；不读频域，零 FFT 开销
 var meterAnim = 0;
-var meterFrame = { leftSum: 0, rightSum: 0, leftMax: 0, rightMax: 0, sampleCount: 0 };
 var meterData = { leftRms: -90, rightRms: -90 };
 var meterLedsL = null;
 var meterLedsR = null;
@@ -1434,28 +1670,29 @@ function initMobileAudioGraph() {
   if (!AC) return;
   try {
     mobileAudioCtx = new AC();
+    // 时域直通节点：把源信号送到扬声器，保证 createMediaElementSource 重路由后仍有声。
+    // Analyser 仅在读取频域数据时才做 FFT；这里从不读频域，零开销，纯 time-domain 直通。
     meterAnalyser = mobileAudioCtx.createAnalyser();
     meterAnalyser.fftSize = 2048;
-    meterAnalyser.smoothingTimeConstant = 0.7;
-    meterAnalyser.minDecibels = -120;
-    meterAnalyser.maxDecibels = 0;
+    meterAnalyser.smoothingTimeConstant = 0;
     meterAnalyser.connect(mobileAudioCtx.destination);
-
     meterScript = mobileAudioCtx.createScriptProcessor(256, 2, 2);
     meterScript.onaudioprocess = function(e) {
+      // 仅采集峰值，不回写输出(回写会与 meterAnalyser 直通形成双出声叠加，产生咔哒声)。
+      // 出声完全由上方 meterAnalyser(时域直通到 destination)负责。
       var l = e.inputBuffer.getChannelData(0);
       var r = e.inputBuffer.getChannelData(1);
-      var ls = 0, rs = 0, lm = 0, rm = 0;
+      var lMax = -1, lMin = 1, rMax = -1, rMin = 1;
       for (var i = 0; i < l.length; i++) {
-        var a = Math.abs(l[i]); ls += a * a; if (a > lm) lm = a;
-        var b = Math.abs(r[i]); rs += b * b; if (b > rm) rm = b;
+        var a = l[i]; if (a > lMax) lMax = a; if (a < lMin) lMin = a;
+        var b = r[i]; if (b > rMax) rMax = b; if (b < rMin) rMin = b;
       }
-      meterFrame.leftSum = ls; meterFrame.rightSum = rs;
-      meterFrame.leftMax = lm; meterFrame.rightMax = rm;
-      meterFrame.sampleCount = l.length;
-      // rAF 层据此换算 dB(每次只算一次，缓存到 meterData)
-      meterData.leftRms = rmsDb(ls / l.length);
-      meterData.rightRms = rmsDb(rs / l.length);
+      // 峰值电平表：本帧最大值-最小值的一半即峰值幅度，不再做 RMS 累加，反应更即时应手
+      // clamp 到 ≤1（0dBFS），防止解码器/VB 增益后样本超界导致峰值刻度越界
+      var lpeak=(lMax-lMin)/2, rpeak=(rMax-rMin)/2;
+      if (lpeak > 1) lpeak = 1; if (rpeak > 1) rpeak = 1;
+      meterData.leftRms = peakDb(lpeak);
+      meterData.rightRms = peakDb(rpeak);
     };
     meterScript.connect(mobileAudioCtx.destination);
 
@@ -1463,9 +1700,8 @@ function initMobileAudioGraph() {
   } catch (e) {}
 }
 
-function rmsDb(meanSq) {
-  var rms = Math.sqrt(Math.max(0, meanSq));
-  return rms > 0 ? 20 * Math.log10(rms) : -90;
+function peakDb(peak) {
+  return peak > 0 ? 20 * Math.log10(peak) : -90;
 }
 
 // 把给定 audio 元素接入 WebAudio 图(同 fftplayer.setupAudioSource)。
@@ -1475,8 +1711,9 @@ function attachMobileSource(audio) {
   try {
     var src = mobileAudioCtx.createMediaElementSource(audio);
     audio.__srcConnected = true;
-    src.connect(meterAnalyser);
-    src.connect(meterScript);
+    audio.__meshSrc = src;   // 保存引用，供 freshMobileAudioEl 重建时 disconnect 防止累积泄漏
+    src.connect(meterAnalyser);   // 主出声路径(时域直通)
+    src.connect(meterScript);     // 采集路径(峰值电平)
   } catch (e) { try { audio.__srcConnected = false; } catch (_) {} }
 }
 
@@ -1628,7 +1865,9 @@ function renderMeterLeds(leds, disp, peak) {
   if (!leds) return;
   var total = leds.children.length;
   var onCount = Math.round(disp * total);
+  // 峰值格 clamp 到条内最后一格：满刻度(0dB)时显示在最右格，绝不越界/消失
   var peakIdx = Math.round(peak * total);
+  if (peakIdx >= total) peakIdx = total - 1;
   for (var i = 0; i < total; i++) {
     var led = leds.children[i];
     var cls = 'meter-led';
@@ -1637,7 +1876,7 @@ function renderMeterLeds(leds, disp, peak) {
       cls = p > 0.85 ? 'meter-led red' : (p > 0.70 ? 'meter-led yellow' : 'meter-led on');
     }
     // 峰值标记：保持 0.5 秒，显示在信号最前端
-    if (i === peakIdx && peakIdx < total) {
+    if (i === peakIdx) {
       cls += ' peak';
     }
     if (led.className !== cls) led.className = cls;

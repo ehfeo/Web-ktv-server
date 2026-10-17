@@ -214,6 +214,8 @@ func startServer() error {
 		http.HandleFunc("/api/songs-by-category", SongsByCategoryHandler)
 		http.HandleFunc("/api/selfcheck", SelfCheckHandler)
 		http.HandleFunc("/api/check-tracks", CheckTracksHandler)
+		http.HandleFunc("/api/download/tracks", DownloadTracksHandler)
+		http.HandleFunc("/api/download", DownloadHandler)
 		http.HandleFunc("/api/hot-songs", HotSongsHandler)
 		http.HandleFunc("/api/play-count", PlayCountHandler)
 		http.HandleFunc("/api/increment-play", IncrementPlayHandler)

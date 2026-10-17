@@ -18,6 +18,15 @@ import (
 	"time"
 )
 
+// ffprobeMutex 串行化所有 ffprobe 子进程。
+// 曲库盘是外置USB机械硬盘（5400转），并发探测会互相争抢磁头：
+// 批量点歌时 6 个 ffprobe 并发，单个耗时从 150-230ms 恶化到 6.5-8.3s（有日志实证），
+// 单次探测还要做 130KB-6.6MB 的小块随机读（mp4的moov在文件尾时高达182次seek）。
+// 缓存命中路径在加锁之前返回，高频轮询/Range请求不受影响。
+// 锁序安全：持锁方只做子进程I/O，绝不会再去等 globalTranscodeQueue 等其它锁，
+// 因此 TranscodeStatusHandler 持队列锁调用 getMediaInfo 也不会形成环。
+var ffprobeMutex sync.Mutex
+
 // mediaInfoCache 媒体信息缓存，避免每次点歌都调用ffprobe导致磁盘100%
 var mediaInfoCache struct {
 	sync.RWMutex
@@ -97,19 +106,24 @@ var diskSleepStatus struct {
 }
 
 // setDiskSleeping 设置磁盘休眠状态。sleeping=true 表示进入等待唤醒状态。
+// 仅在与当前状态发生跃变时打日志，避免并发请求（批量点歌/播放中Range分段请求）重复刷屏。
 func setDiskSleeping(sleeping bool, filePath string) {
 	diskSleepStatus.Lock()
 	defer diskSleepStatus.Unlock()
 	if sleeping {
+		if diskSleepStatus.waking {
+			return
+		}
 		diskSleepStatus.waking = true
 		diskSleepStatus.file = filePath
 		diskSleepStatus.since = time.Now()
 		log.Printf("[磁盘休眠] 检测到磁盘休眠，正在等待唤醒: file=%s", filepath.Base(filePath))
 	} else {
-		if diskSleepStatus.waking {
-			log.Printf("[磁盘休眠] 唤醒完成: file=%s 等待耗时=%dms",
-				filepath.Base(diskSleepStatus.file), time.Since(diskSleepStatus.since).Milliseconds())
+		if !diskSleepStatus.waking {
+			return
 		}
+		log.Printf("[磁盘休眠] 唤醒完成: file=%s 等待耗时=%dms",
+			filepath.Base(diskSleepStatus.file), time.Since(diskSleepStatus.since).Milliseconds())
 		diskSleepStatus.waking = false
 		diskSleepStatus.file = ""
 	}
@@ -645,6 +659,35 @@ var findMediaFileCache struct {
 	cache map[string]string
 }
 
+// statWithSleepWatchdog os.Stat + 磁盘休眠看门狗，返回耗时(ms)与是否存在。
+// 曲库盘是外置USB机械硬盘，休眠时连 os.Stat 这种元数据I/O都会阻塞整段盘唤醒时间
+// （实测约10秒）。findMediaFile 的命中路径是静默成功路径，过去这段代价完全不可见——
+// 用户看不到"硬盘已休眠"提示，正是因为卡在这里而不是卡在 getMediaInfo 的预热读取上。
+// 超过500ms即置起前端提示，Stat返回后清除，并补打慢日志供事后诊断。
+func statWithSleepWatchdog(path string) (int64, bool) {
+	start := time.Now()
+	wakingFlag := int32(0)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-time.After(500 * time.Millisecond):
+			atomic.StoreInt32(&wakingFlag, 1)
+			setDiskSleeping(true, path)
+		case <-done:
+		}
+	}()
+	_, statErr := os.Stat(path)
+	close(done)
+	statMs := time.Since(start).Milliseconds()
+	if atomic.LoadInt32(&wakingFlag) == 1 {
+		setDiskSleeping(false, path)
+		log.Printf("[findMediaFile] os.Stat慢(磁盘休眠唤醒) 耗时=%dms path=%s", statMs, path)
+	} else if statMs > 100 {
+		log.Printf("[findMediaFile] os.Stat慢 耗时=%dms path=%s", statMs, path)
+	}
+	return statMs, statErr == nil
+}
+
 func findMediaFile(name string) string {
 	findStart := time.Now()
 	// 空name直接返回，避免无效Walk
@@ -661,15 +704,13 @@ func findMediaFile(name string) string {
 	// 1. 优先从内存曲库映射表查找（O(1)）
 	lookupStart := time.Now()
 	if absPath, ok := lookupAbsPath(name); ok {
-		statStart := time.Now()
-		_, statErr := os.Stat(absPath)
-		statMs := time.Since(statStart).Milliseconds()
-		if statErr == nil {
+		statMs, statOK := statWithSleepWatchdog(absPath)
+		if statOK {
 			// 内存映射命中属O(1)高频成功路径：浏览器对mp4的Range分段请求会大量触发，
 			// 每请求一行会导致控制台刷屏。成功命中不再打日志，仅保留异常/慢路径日志。
 			return absPath
 		}
-		log.Printf("[findMediaFile] 内存映射命中但文件不存在: name=%s absPath=%s stat=%dms err=%v", name, absPath, statMs, statErr)
+		log.Printf("[findMediaFile] 内存映射命中但文件不存在: name=%s absPath=%s stat=%dms", name, absPath, statMs)
 	} else {
 		log.Printf("[findMediaFile] 步骤1 内存映射未命中 lookup=%dms name=%s", time.Since(lookupStart).Milliseconds(), name)
 	}
@@ -678,10 +719,8 @@ func findMediaFile(name string) string {
 	findMediaFileCache.RLock()
 	if p, ok := findMediaFileCache.cache[name]; ok {
 		findMediaFileCache.RUnlock()
-		statStart := time.Now()
-		_, statErr := os.Stat(p)
-		statMs := time.Since(statStart).Milliseconds()
-		if statErr == nil {
+		statMs, statOK := statWithSleepWatchdog(p)
+		if statOK {
 			// 与步骤1一致：成功命中属高频成功路径，不再打日志，仅保留异常/慢路径日志。
 			return p
 		}
@@ -1389,7 +1428,10 @@ func getMediaInfo(filePath string) (videoCodec string, allAudioIsAAC bool, allAu
 	cmd := exec.Command(ffprobePath, "-v", "error",
 		"-show_entries", "stream=codec_type,codec_name,bit_rate,channels,field_order:format=bit_rate",
 		"-of", "json", filePath)
+	// 串行化 ffprobe：避免批量点歌时多个探测进程在USB机械硬盘上互相争抢磁头
+	ffprobeMutex.Lock()
 	output, cmdErr := cmd.CombinedOutput()
+	ffprobeMutex.Unlock()
 	ffprobeMs := time.Since(startTime).Milliseconds()
 	log.Printf("[getMediaInfo] 阶段4 ffprobe完成 耗时=%dms 输出长度=%d 错误=%v file=%s",
 		ffprobeMs, len(output), cmdErr, filepath.Base(filePath))
@@ -1565,7 +1607,10 @@ func checkMediaTracks(filePath string) *MediaTrackWarning {
 	cmd := exec.Command(ffprobePath, "-v", "error",
 		"-show_entries", "stream=codec_type,channels",
 		"-of", "json", filePath)
+	// 与 getMediaInfo 共用同一把串行锁，避免探测互相争抢曲库盘磁头
+	ffprobeMutex.Lock()
 	output, _ := cmd.CombinedOutput()
+	ffprobeMutex.Unlock()
 	log.Printf("[checkMediaTracks] ffprobe完成: file=%s 耗时=%dms 输出长度=%d",
 		filepath.Base(filePath), time.Since(startTime).Milliseconds(), len(output))
 
